@@ -1,0 +1,1 @@
+Figure 1 was made in ArcGIS. The latitude and longitude of treatment and control schools used for the figure are stored under data/school_gps_map.csv. The shapefile with the relevant district boundaries is stored under data/2011_Dist.shp. Both files can be imported to ArcGIS and overlayed to create the figure.   
