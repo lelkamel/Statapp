@@ -1,0 +1,74 @@
+---
+title: "Projet statapp"
+author: "Lyna EL KAMEL"
+date: "2025-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("clubSandwich")
+```
+
+
+```{r cars}
+library(haven)     # For reading Stata files
+library(glmnet)    # For Lasso and Ridge regression
+library(plotmo)    # For plots using Lasso and Ridge
+library(dplyr)     # For data manipulation
+library(estimatr)
+library(gtsummary) #Pour faire de beaux tableaux
+library(sandwich) #Pour les cluster
+library(clubSandwich)
+library("rlang")
+library(lmtest)  # Charge le package
+
+```
+
+```{r}
+# Accès aux données
+data_path = 'C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donnée/Main Analysis and Paper/Analysis data' 
+data <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
+```
+
+```{r}
+#Je charge mes fonctions 
+source("my_functions.R")
+```
+
+
+# Tentative de reproduire un des tableau
+Je crée une première régression avec l'index gender_index2 (puis je créerai une fonction pour travailler plus efficacement sur les autres indices). 
+
+```{r}
+# Je compare la distribution de l'outcome gender_index pour le groupe de contrôle et de traitement
+summarize_by_group(data, "B_treat", "E_Sgender_index2")
+
+
+```
+
+
+```{r}
+#Je fais ma régression  pour Gender attitude, Behavior index
+run_lm_robust(filter(data, !is.na(E_Steam_id) & attrition_el == 0), "E_Sgender_index2", "bl_gender_flag")
+
+```
+```{r}
+run_lm_robust_behaviour(filter(data, !is.na(E_Steam_id) & attrition_el == 0), "E_Sbehavior_index2")
+```
+
+
+
+# Analyse de l'hétérogénéité de traitement grâce au machine learning
+
+Dans cette partie, nous souhaiterions étendre le travail effectué par les auteurs, en analysant si le traitement a eu des effets hétérogènes au delà de celles mises au jour par la régression avec interaction. Pour ce faire, nous procédons en trois étapes 
+1. Nous commençons par entraîner plusieurs modèles de prediction de la variable "norme de genre" (on reprend simplement l'index des auteurs). 
+2. Nous utilisons la méthode des cross-validation pour retenir le modèle le + adéquat (nous disposons en effet de plusieurs jeux de données : les données du groupe de contrôle à la endline, et celles du groupe de contrôle et de traitement à la baseline)
+3. Enfin, une fois le meilleur modèle retenu, nous étudions l'effet de l'hétérogénéité, sur les variables sélectionnées par les modèles (qui minimisent l'erreur quadratique, tout en maximisant la variance... => à mieux comprendre)
+
+
+
+## Le modèle Ridge sur l'enquête de baseline du groupe de contrôle
