@@ -39,50 +39,46 @@ difference_moyenne_outcome <- function(data, outcome) {
 }
 
 
+
+#####################################Fonction qui appelle les macros
+macros_stata <-function(category_name){
+# Définir le chemin du fichier CSV en fonction du nom de la catégorie
+# Remplacer "chemin/vers/ton/fichier/" par le chemin de base du dossier où se trouvent tes fichiers CSV
+base_path <- "C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donnée/Main Analysis and Paper/Analysis data"
+file_name <- paste0(category_name, ".csv")  # Créer le nom du fichier en fonction de la catégorie
+file_path <- file.path(base_path, file_name)  # Créer le chemin complet
+
+# Vérifier si le fichier existe
+if (!file.exists(file_path)) {
+  stop(paste("Le fichier", category_name, "n'existe pas !"))
+}
+
+# Charger bl_gender_flag depuis le fichier CSV
+category_name_data <- read.csv(file_path)
+category_name_flag <- names(category_name_data)  # Extraire les noms des colonnes
+return(category_name_flag)  # Retourner le résultat
+}
+
 ###############################################Fonction qui fait la première régression (Tableau 2); à modifier pour harmoniser
 
-run_lm_robust <- function(data, outcome, category_name) {
+run_lm_robust <- function(data, outcome, flag) {
   
-  # Définir le chemin du fichier CSV en fonction du nom de la catégorie
-  # Remplacer "chemin/vers/ton/fichier/" par le chemin de base du dossier où se trouvent tes fichiers CSV
-  base_path <- "C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donnée/Main Analysis and Paper/Analysis data"
-  file_name <- paste0(category_name, ".csv")  # Créer le nom du fichier en fonction de la catégorie
-  bl_gender_path <- file.path(base_path, file_name)  # Créer le chemin complet
-  
-  # Vérifier si le fichier existe
-  if (!file.exists(bl_gender_path)) {
-    stop(paste("Le fichier", bl_gender_path, "n'existe pas !"))
-  }
-  
-  # Charger bl_gender_flag depuis le fichier CSV
-  bl_gender_data <- read.csv(bl_gender_path)
-  bl_gender_flag <- names(bl_gender_data)  # Extraire les noms des colonnes
   
   ## Sélection des autres régresseurs
   selected_columns1 <- names(select(data, starts_with("district_gender_")))
   selected_columns2 <- names(select(data, starts_with("gender_grade_")))
   
-  el_gender_flag <- c("E_Swives_less_edu_n_flag", 
-                      "E_Select_woman_y_flag",
-                      "E_Sboy_more_oppo_n_flag",
-                      "E_Stown_studies_y_flag",
-                      "E_Sman_final_deci_n_flag", 
-                      "E_Swoman_viol_n_flag",
-                      "E_Scontrol_daughters_n_flag",
-                      "E_Swoman_role_home_n_flag",
-                      "E_Smen_better_suited_n_flag",
-                      "E_Ssimilar_right_y_flag",
-                      "E_Smarriage_more_imp_n_flag",
-                      "E_Steacher_suitable_n_flag",
-                      "E_Sgirl_marriage_age_19_flag", 
-                      "E_Smarriage_age_diff_m_flag",
-                      "E_Sstudy_marry_flag",
-                      "E_Sallow_work_y_flag",
-                      "E_Sfertility_flag")
+  ##Sélection des flags
+  flag_columns <- c()
+  
+  # Boucle pour appliquer macros_stata() à chaque élément de flag
+  for (f in flag) {
+    flag_columns <- c(flag_columns, macros_stata(f))
+  }
   
   # Regroupe toutes les variables explicatives
   regressors <- c("B_treat", "B_Sgender_index2", "B_Sgender_index2_m", 
-                  el_gender_flag, selected_columns1, selected_columns2, bl_gender_flag)
+                  flag_columns, selected_columns1, selected_columns2) 
   
   # Créer la formule de régression dynamiquement
   formula <- as.formula(paste(outcome, "~", paste(regressors, collapse = " + ")))
