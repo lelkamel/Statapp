@@ -59,7 +59,7 @@ category_name_flag <- names(category_name_data)  # Extraire les noms des colonne
 return(category_name_flag)  # Retourner le résultat
 }
 
-###############################################Fonction qui fait la première régression (Tableau 2); à modifier pour harmoniser
+###############################################Fonction qui fait la première régression (Tableau 2)
 
 run_lm_robust <- function(data, outcome, flag) {
   
@@ -97,34 +97,26 @@ run_lm_robust <- function(data, outcome, flag) {
 
 
 
-
-
-
-
-
-
-
-###################à supprimer
-run_lm_robust_behaviour <- function(data, outcome) {
-  ## Sélection de mes régresseurs
-  # Je dois recréer mes "paquets de variables" : 
-  # 1. 1e étape : convertir la commande * de stata
-  # 2. 2e étape : recréer les macro du dofile sup_controls
+###############################################Fonction qui fait la régression avec interaction (Tableau 4)
+run_lm_robust_girls <- function(data, outcome, flag) {
+  
+  
+  ## Sélection des autres régresseurs
   selected_columns1 <- names(select(data, starts_with("district_gender_")))
   selected_columns2 <- names(select(data, starts_with("gender_grade_")))
-  el_behavior_common_flag <- c("E_Stalk_opp_gender_comm_flag", 
-                               "E_Ssit_opp_gender_comm_flag", 
-                               "E_Scook_clean_comm", 
-                               "E_Sabsent_sch_hhwork_comm_flag", 
-                               "E_Sdiscourage_college_comm_flag", 
-                               "E_Sdiscourage_work_comm_flag")
   
-  bl_behavior_common_flag <- c("B_Scook_clean_comm_flag", 
-                               "B_Stalk_opp_gender_comm_flag")
+  ##Sélection des flags
+  flag_columns <- c()
+  
+  # Boucle pour appliquer macros_stata() à chaque élément de flag
+  for (f in flag) {
+    flag_columns <- c(flag_columns, macros_stata(f))
+  }
   
   # Regroupe toutes les variables explicatives
-  regressors <- c("B_treat", "B_Sbehavior_index2", "B_Sbehavior_index2_m", 
-                  el_behavior_common_flag, selected_columns1, selected_columns2, bl_behavior_common_flag)
+  regressors <- c("B_treat", "B_Sgender_index2", "B_Sgender_index2_m", 
+                  flag_columns, selected_columns1, selected_columns2,"B_Sgirl * B_treat", 
+                  paste0("B_Sgirl * ", flag_columns) ) 
   
   # Créer la formule de régression dynamiquement
   formula <- as.formula(paste(outcome, "~", paste(regressors, collapse = " + ")))
@@ -133,7 +125,7 @@ run_lm_robust_behaviour <- function(data, outcome) {
   model <- lm(formula, data = data)
   
   # Calculer la matrice de variance-covariance clusterisée avec clubSandwich
-  vcov_cluster <- vcovCL(model, cluster = ~Sschool_id, type = "HC1")  # Ou "HC2" / "HC3" pour correction plus forte
+  vcov_cluster <- vcovCL(model, cluster = ~Sschool_id, type = "HC1")  # Ou "HC2" / "HC3"
   
   # Appliquer la correction et afficher les résultats
   model_corrected <- coeftest(model, vcov = vcov_cluster)
@@ -142,39 +134,6 @@ run_lm_robust_behaviour <- function(data, outcome) {
 }
 
 
-########################"Pareil à modif
-run_lm_robust_aspiration <- function(data, outcome) {
-  ## Sélection de mes régresseurs
-  # Je dois recréer mes "paquets de variables" : 
-  # 1. 1e étape : convertir la commande * de stata
-  # 2. 2e étape : recréer les macro du dofile sup_controls
-  selected_columns1 <- names(select(data, starts_with("district_gender_")))
-  selected_columns2 <- names(select(data, starts_with("gender_grade_")))
-  el_behavior_common_flag <- c("E_Stalk_opp_gender_comm_flag", 
-                               "E_Ssit_opp_gender_comm_flag", 
-                               "E_Scook_clean_comm", 
-                               "E_Sabsent_sch_hhwork_comm_flag", 
-                               "E_Sdiscourage_college_comm_flag", 
-                               "E_Sdiscourage_work_comm_flag")
-  
-  bl_behavior_common_flag <- c("B_Scook_clean_comm_flag", 
-                               "B_Stalk_opp_gender_comm_flag")
-  
-  # Regroupe toutes les variables explicatives
-  regressors <- c("B_treat", "B_Sbehavior_index2", "B_Sbehavior_index2_m", 
-                  el_behavior_common_flag, selected_columns1, selected_columns2, bl_behavior_common_flag)
-  
-  # Créer la formule de régression dynamiquement
-  formula <- as.formula(paste(outcome, "~", paste(regressors, collapse = " + ")))
-  
-  # Effectuer la régression avec lm()
-  model <- lm(formula, data = data)
-  
-  # Calculer la matrice de variance-covariance clusterisée avec clubSandwich
-  vcov_cluster <- vcovCL(model, cluster = ~Sschool_id, type = "HC1")  # Ou "HC2" / "HC3" pour correction plus forte
-  
-  # Appliquer la correction et afficher les résultats
-  model_corrected <- coeftest(model, vcov = vcov_cluster)
-  
-  return(model_corrected)
-}
+
+
+
