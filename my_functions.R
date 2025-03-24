@@ -5,41 +5,6 @@
 ##############################################################
 
 
-
-###################################Fonction qui compare la distribution d'une variable en fonction d'une autre
-summarize_by_group <- function(data, group_col, summary_col) {
-  
-  summary_data <- data %>%
-    group_by(!!sym(group_col)) %>%  # Utilisation de !!sym pour passer le nom de la colonne dynamique
-    summarise(
-      Min = min(!!sym(summary_col), na.rm = TRUE),
-      Q1 = quantile(!!sym(summary_col), 0.25, na.rm = TRUE),
-      Median = median(!!sym(summary_col), na.rm = TRUE),
-      Mean = mean(!!sym(summary_col), na.rm = TRUE),
-      Q3 = quantile(!!sym(summary_col), 0.75, na.rm = TRUE),
-      Max = max(!!sym(summary_col), na.rm = TRUE),
-      NA_count = sum(is.na(!!sym(summary_col)))
-    )
-  
-  return(summary_data)
-}
-
-
-###########################################Fonction qui calcule la différence de l'outcome en moyenne entre groupe de contrôle et groupe de traitement (a priori, ça fonctionne encore même si on est face à une pooled OLS) 
-difference_moyenne_outcome <- function(data, outcome) {
-  # Calculer la moyenne par groupe B_treat
-  ybar <- data %>%
-    group_by(B_treat) %>%
-    summarise(mean = mean(!!sym(outcome), na.rm = TRUE))
-  
-  # Calculer la différence entre les moyennes pour B_treat == 1 et B_treat == 0
-  diff_ybar <- filter(ybar, B_treat == 1)$mean - filter(ybar, B_treat == 0)$mean
-  
-  return(diff_ybar)
-}
-
-
-
 #####################################Fonction qui appelle les macros
 macros_stata <-function(category_name){
 # Définir le chemin du fichier CSV en fonction du nom de la catégorie
