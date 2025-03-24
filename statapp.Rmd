@@ -41,8 +41,8 @@ data <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 source("my_functions.R")
 ```
 
-
-# Reproduction du tableau 2
+# Rreproduction des principaux tableaux de l'article
+## Reproduction du tableau 2
 ```{r}
 #Je fais ma régression  pour Gender attitude 
 run_lm_robust(filter(data, !is.na(E_Steam_id) & attrition_el == 0), "E_Sgender_index2", c("bl_gender_flag", "el_gender_flag"))
@@ -60,7 +60,7 @@ run_lm_robust(filter(data, !is.na(E_Steam_id) & attrition_el == 0 & B_Sgirl==1),
 ```
 
 
-# Analyse de l'hétérogénéité (effet du genre)
+## Analyse de l'hétérogénéité (effet du genre)
 Voir code stata L500
 ```{r}
 #Le résultat de l'interaction n'est pas significatif pour Gender Attitude
@@ -71,7 +71,7 @@ run_lm_robust_girls(filter(data, !is.na(E_Steam_id) & attrition_el == 0), "E_Sge
 run_lm_robust(filter(data, !is.na(E_Steam_id) & attrition_el == 0), "E_Sbehavior_index2", c("el_behavior_common_flag","bl_behavior_common_flag"))
 ```
 
-# Analyse de l'hétérogénéité (effet du genre et wealth proxies)
+## Analyse de l'hétérogénéité (effet du genre et wealth proxies)
 ```{r}
 
 ```
