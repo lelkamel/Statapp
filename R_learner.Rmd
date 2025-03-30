@@ -1,0 +1,109 @@
+---
+title: "R_learner"
+author: "K.S"
+date: "2025-03-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(haven)
+```
+
+```{r}
+df <-read_dta("bt_analysis_final.dta")
+```
+
+```{r}
+controls <- c( "B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
+  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
+  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
+  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
+  "B_Pgender_index2_impute", "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_q13_counselor", "B_q18_pta_meet", "B_q22_library", "B_q22_toilets", "B_q22_electricity",
+  "B_q22_avail_computers", "B_q22_avail_internet", "B_q22_sports_field", "B_q22_mid_meal",
+  "B_q22_auditorium", "B_q22_avail_edusat", "B_q21_week1", "B_q21_week6", "B_coed",
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+```
+
+
+```{r}
+library(glmnet)
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+y=(df1$E_Sgender_index2)
+x=as.matrix(as.data.frame(scale(df1[controls])))
+lasso_model1 <- glmnet(x,y,alpha=1)
+cv_lasso1 <- cv.glmnet(x,y,alpha=1)
+best_lambda1 <- cv_lasso1$lambda.min
+best_lambda1
+```
+
+```{r}
+plot(lasso_model1,xvar="lambda",label = TRUE)
+abline(v = log(best_lambda1), col = "red", lty = 2)
+```
+
+```{r}
+coeffs1 <- coef(lasso_model1, s= best_lambda1)
+cbind(row.names(coeffs1)[order(abs(coeffs1), decreasing = TRUE)], coeffs1[order(abs(coeffs1), decreasing = TRUE)])
+```
+
+
+```{r}
+Y1 <-predict(cv_lasso1,newx = x, s= best_lambda1)
+epsilon1 <- y - Y1
+```
+
+
+
+#---------------------------------------------------------------------------------
+
+
+```{r}
+library(glmnet)
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+d=df1$B_treat
+x=as.matrix(as.data.frame(scale(df1[controls])))
+lasso_model2 <- glmnet(x,d,alpha=1)
+cv_lasso2 <- cv.glmnet(x,d,alpha=1)
+best_lambda2 <- cv_lasso2$lambda.min
+best_lambda2
+```
+
+```{r}
+plot(lasso_model2,xvar="lambda",label = TRUE)
+abline(v = log(best_lambda2), col = "red", lty = 2)
+```
+
+```{r}
+coeffs2 <- coef(lasso_model2, s= best_lambda1)
+cbind(row.names(coeffs2)[order(abs(coeffs2), decreasing = TRUE)], coeffs2[order(abs(coeffs2), decreasing = TRUE)])
+```
+
+```{r}
+D2 <-predict(cv_lasso2,newx = x, s= best_lambda2)
+epsilon2 <- d - D2
+```
+
+#-------------------------------------------------------------------------------------
+
+```{r}
+x_new = as.vector(epsilon2) * x
+model1 <- lm(epsilon1 ~. , data=as.data.frame(x_new))
+summary(model1)
+R_learner_1 <-predict.lm(object=model1,newdata = as.data.frame(x_new))
+```
+
+```{r}
+model2 <- lm(epsilon1 ~ epsilon2)
+summary(model2)
+R_learner_2 <-predict.lm(object=model2,newdata = as.data.frame(epsilon2))
+```
+
+
