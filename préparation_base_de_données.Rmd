@@ -1,0 +1,48 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(haven)     # For reading Stata files
+library(dplyr)
+```
+
+```{r}
+# Accès aux données
+data_path = 'C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donnée/Main Analysis and Paper/Analysis data' 
+data <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
+```
+
+#Variable caste
+Je pense que ce serait pas mal d'ajouter une indicatrice de toutes les castes et d'ajouter chacune dans le modèle final. Mais pour ce faire, il faut comprendre comment ces dernières sont construites.  
+
+```{r}
+str(data$B_Scaste)
+```
+
+Il semblerait que la variable stata contienne à la fois des modalités numériques et des labels (lesquelles pointent vers des noms de castes officiels). Il faudrait réussir à remplacer ces modalités numériques, remplacer Other (par le nom correspondant dans la variable BS_caste_oth). 
+
+```{r}
+# Accéder aux labels des valeurs numériques
+labels <- attr(data$B_Scaste, "labels")
+
+# Afficher les labels
+print(labels)
+```
+
+```{r}
+# Supposons que 'data' est votre DataFrame et 'B_Scaste' est la colonne d'intérêt
+frequency_table <- data %>%
+  count(B_Scaste = as_factor(B_Scaste)) %>%
+  mutate(Label = levels(B_Scaste)[B_Scaste])
+
+# Afficher le tableau de fréquences avec les labels
+print(frequency_table)
+#Ce qui est étrange, c'est que ces labels ci ne correspondent pas aux premiers
+```
+
