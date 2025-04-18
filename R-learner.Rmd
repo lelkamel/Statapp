@@ -1,0 +1,204 @@
+---
+title: "R-learner"
+author: "Lyna EL KAMEL"
+date: "2025-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+```{r}
+library(haven)
+
+```
+
+```{r}
+path<- c("C:/Users/steph/Documents/ENSAE/Projet statapp/code perso/essai R")
+setwd(path)
+df <-read_dta("bt_analysis_final.dta")
+```
+
+```{r}
+controls <- c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
+  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
+  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
+  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
+  "B_Pgender_index2_impute", "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_q13_counselor", "B_q18_pta_meet", "B_q22_library", "B_q22_toilets", "B_q22_electricity",
+  "B_q22_avail_computers", "B_q22_avail_internet", "B_q22_sports_field", "B_q22_mid_meal",
+  "B_q22_auditorium", "B_q22_avail_edusat", "B_q21_week1", "B_q21_week6", "B_coed",
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+
+controls_simple<-c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
+  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
+  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
+  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
+  "B_Pgender_index2_impute", "B_coed",
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+```
+
+```{r}
+
+```
+
+
+```{r}
+library(glmnet)
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+Y=(df1$E_Sgender_index2)
+X1 = df1[controls_simple]
+X=as.matrix(as.data.frame(scale(df1[controls_simple])))
+
+X_expand=as.matrix(as.data.frame(expand_features(X)))
+D=df1$B_treat
+```
+#####----------méthode 1 : RIDGE #------------------------- (LASSO ne donne pas de resulat)
+```{r}
+#X<-as.matrix(scale(expand_features(X))
+```
+
+
+## définition du nombre de découpes pour faire le cross-fit
+```{r}
+k_folds = 5
+foldid = sample(rep(seq(k_folds), length = length(D)))
+```
+
+## détermination du score de propension : D.hat (regression logistique)
+```{r}
+D.lasso<-cv.glmnet(X_expand,D,family="binomial",foldid = foldid, keep=TRUE,alpha=1)
+theta.hat.lasso<-D.lasso$fit.preval[,!is.na(colSums(D.lasso$fit.preval))][,D.lasso$lambda==D.lasso$lambda.min] #theta c'est X'beta
+D.hat.lasso = 1/(1 + exp(-theta.hat.lasso)) #D.hat c'est P(D=1|X) = F(X'bet) avec F densité d'une logistique
+lasso_accuracy(fit=D.lasso,x=X_expand,y=D)
+```
+
+## détermination de E(Y|X) : Y.hat
+```{r}
+Y.lasso<-cv.glmnet(X_expand,Y,family="gaussian",foldid = foldid, keep=TRUE,alpha=0)
+Y.hat.lasso<-Y.lasso$fit.preval[,!is.na(colSums(Y.lasso$fit.preval))][,Y.lasso$lambda==Y.lasso$lambda.min]
+lasso_accuracy(fit=Y.lasso,x=X_expand,y=Y)
+```
+
+## fit le R-learner
+```{r}
+Y_tilde = Y - Y.hat.lasso
+X_tilde = cbind(as.numeric(D - D.hat.lasso)* cbind(1,X_expand)) #Pour le R-S learner, on rajoute encore X dans X_tilde
+tau_fit <- cv.glmnet(X_tilde,Y_tilde,family="gaussian",foldid = foldid,alpha=1)
+tau_beta = as.vector(t(coef(tau_fit, s = "lambda.min")[-1]))
+
+tau_hat = cbind(1,X_expand) %*% tau_beta
+tau_beta
+```
+```{r}
+coeffs1 <- coef(tau_fit, s= "lambda.min")
+cbind(row.names(coeffs1)[order(abs(coeffs1), decreasing = TRUE)], coeffs1[order(abs(coeffs1), decreasing = TRUE)])
+```
+
+```{r}
+mean(tau_hat[which(df1$B_Sgirl==1)])
+mean(tau_hat[which(df1$B_Sgirl==0)])
+```
+
+```{r}
+lasso_accuracy <- function(fit, x, y, s = "lambda.min") {
+  # Détecter la famille
+  family <- fit$glmnet.fit$call$family
+  if (is.null(family)) family <- "gaussian"  # par défaut
+
+  # Prédictions
+  if (family == "binomial") {
+    probs <- predict(fit, newx = x, s = s, type = "response")
+    pred_class <- as.numeric(probs > 0.5)
+    
+    # Métriques pour classification
+    acc <- mean(pred_class == y)
+    log_loss <- -mean(y * log(probs) + (1 - y) * log(1 - probs))
+
+    if (requireNamespace("pROC", quietly = TRUE)) {
+      auc <- pROC::auc(pROC::roc(y, probs))
+    } else {
+      auc <- NA
+      warning("Pour calculer l'AUC, installez le package `pROC`")
+    }
+
+    return(list(
+      type = "classification",
+      accuracy = acc,
+      log_loss = log_loss,
+      auc = auc
+    ))
+
+  } else {
+    y_hat <- predict(fit, newx = x, s = s)
+
+    # Métriques pour régression
+    rmse <- sqrt(mean((y - y_hat)^2))
+    mae <- mean(abs(y - y_hat))
+    r2 <- 1 - sum((y - y_hat)^2) / sum((y - mean(y))^2)
+
+    return(list(
+      type = "regression",
+      rmse = rmse,
+      mae = mae,
+      r2 = r2
+    ))
+  }
+}
+```
+
+
+
+
+```{r}
+expand_features <- function(X, interactions = TRUE, squares = TRUE) {
+  X <- as.data.frame(X)
+  var_names <- colnames(X)
+
+  new_features <- list()
+
+  # Variables originales
+  new_features[["linear"]] <- X
+
+  # Carrés des variables
+  if (squares) {
+    squares_df <- X^2
+    colnames(squares_df) <- paste0(var_names, "_sq")
+    new_features[["squares"]] <- squares_df
+  }
+
+  # Interactions croisées
+  if (interactions) {
+    inter_mat <- list()
+    p <- ncol(X)
+    for (i in 1:(p - 1)) {
+      for (j in (i + 1):p) {
+        new_col <- X[[i]] * X[[j]]
+        name <- paste0(var_names[i], "_x_", var_names[j])
+        inter_mat[[name]] <- new_col
+      }
+    }
+    new_features[["interactions"]] <- as.data.frame(inter_mat)
+  }
+
+  # Fusionner toutes les features
+  X_expanded <- do.call(cbind, new_features)
+  return(X_expanded)
+}
+```
+
+
+
+
+```
+
+
