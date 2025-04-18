@@ -19,7 +19,7 @@ data <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 ```
 
 #Variable caste
-Je pense que ce serait pas mal d'ajouter une indicatrice de toutes les castes et d'ajouter chacune dans le modèle final. Mais pour ce faire, il faut comprendre comment ces dernières sont construites.  
+Je pense que ce serait pas mal d'ajouter une indicatrice de OBC, BCA, BCB et General (mais que faire des gens qui ne savent pas à quelle caste ils appartiennent et des NA ???)
 
 ```{r}
 str(data$B_Scaste)

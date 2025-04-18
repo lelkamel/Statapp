@@ -9,32 +9,26 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+```{r}
+library(haven)     # For reading Stata files
+library(dplyr)
+```
+
 
 
 ```{r}
-```{r}
-library(haven)
-
+# Accès aux données
+data_path = 'C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donnée/Main Analysis and Paper/Analysis data' 
+data <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 ```
 
 ```{r}
-path<- c("C:/Users/steph/Documents/ENSAE/Projet statapp/code perso/essai R")
-setwd(path)
-df <-read_dta("bt_analysis_final.dta")
+dim(data)
 ```
 
+
 ```{r}
-controls <- c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
-  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
-  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
-  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
-  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
-  "B_Pgender_index2_impute", "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
-  "B_q13_counselor", "B_q18_pta_meet", "B_q22_library", "B_q22_toilets", "B_q22_electricity",
-  "B_q22_avail_computers", "B_q22_avail_internet", "B_q22_sports_field", "B_q22_mid_meal",
-  "B_q22_auditorium", "B_q22_avail_edusat", "B_q21_week1", "B_q21_week6", "B_coed",
-  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+controls <- c( "B_Sage", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_illiterate",  "B_m_parttime", "B_m_fulltime"
 )
 
 controls_simple<-c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
@@ -47,11 +41,14 @@ controls_simple<-c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgir
 )
 ```
 
+################ TENTATIVE LASSO
 ```{r}
 
 ```
 
 
+
+############# TRAVAIL STEPHANE
 ```{r}
 library(glmnet)
 df1 <- df[-which(is.na(df$E_Sgender_index2)),]
@@ -62,6 +59,9 @@ X=as.matrix(as.data.frame(scale(df1[controls_simple])))
 X_expand=as.matrix(as.data.frame(expand_features(X)))
 D=df1$B_treat
 ```
+
+
+
 #####----------méthode 1 : RIDGE #------------------------- (LASSO ne donne pas de resulat)
 ```{r}
 #X<-as.matrix(scale(expand_features(X))
