@@ -10,11 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-install.packages("devtools")
-```
-
-
-```{r}
 library(devtools) 
 install_github("xnie/rlearner")
 ```
@@ -24,7 +19,7 @@ install_github("xnie/rlearner")
 library(haven)     # For reading Stata files
 library(dplyr)
 library(glmnet)
-
+library(rlearner)
 ```
 
 
@@ -40,8 +35,29 @@ data_brut <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 source("my_functions.R")
 ```
 
+# Problème des flag
+```{r}
+data_flag <- data_brut[
+ 
+    data_brut$B_Saccess_mobile_flag== 1,
+]
+```
 
-################ TENTATIVE 1
+```{r}
+
+```
+
+
+
+# Modèles linéaires
+Pour prédire e* et m* à partir des covariables X, je considère 3 types de modèles : 
+1. Un modèle élémentaire, ne contenant que des régresseurs bruts
+2. Un modèle flexible contenant tous les régresseurs bruts ainsi que des transformations et des interactions
+
+  data_brut$B_Smuslim == 1 |
+     data_brut$B_m_parttime_flag == 1 |
+  data_brut$B_m_fulltime_flag == 1
+
 ```{r}
 data <- data_brut[-which(is.na(data_brut$E2_Sgender_index2)),]
 ```
@@ -55,24 +71,48 @@ training <- sample(nrow(data), nrow(data) * (3 / 4), replace = FALSE)
 data_train <- data[training, ]
 data_test <- data[-training, ]
 ```
-#Travail sur ê
+
 
 ```{r}
-selected_columns1 <- names(select(data, starts_with("district_gender_")))
-selected_columns2 <- names(select(data, starts_with("gender_grade_")))
+data$B_Solder <- ifelse(data$B_Ssibsize - data$B_Ssibsize_young == 1, 1, 0)
+
+```
+
+
+television
+
+
+```{r}
+x_basic <- c( "B_Sgender_index2","B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
+"B_no_female_sib", "B_no_male_sib", "B_Solder_sister", "B_Solder", "B_Sradio_house",          
+
+"B_rural","district", "B_Scaste",
+  
+"B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
+
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+
+
 
 ```
 
 
 
+## Low dimensional specification (basic)
+
+### Prédiction de ê
+
+
 ```{r}
 d_train <- data_train$B_treat
 d_test <- data_test$B_treat
+x_D <- x_basic
+```
 
-x_D <- c( "B_coed", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat", selected_columns1, selected_columns2)
-
-
-# POUR L'INSTANT : On garde uniquement les lignes complètes pour les variables utiles
+```{r}
+# PROBLEME DE VARIABLES MANQUANTES : On garde uniquement les lignes complètes pour les variables utiles
 vars_D <- c("B_treat", x_D)
 data_train_clean <- data_train[complete.cases(data_train[, vars_D]), ]
 data_test_clean <- data_test[complete.cases(data_test[, vars_D]), ]
@@ -81,7 +121,6 @@ data_test_clean <- data_test[complete.cases(data_test[, vars_D]), ]
 d_train <- data_train_clean$B_treat
 d_test <- data_test_clean$B_treat
 ```
-
 
 
 ```{r}
