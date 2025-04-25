@@ -103,7 +103,7 @@ dhat_elnet_D <- predict(fit_elnet_D, newx = model_x_D_test)
 ```
 
 ```{r}
-#Je calcule l'erreur 
+#Je calcule l'erreur (autre chose que le r^2, à reprendre)
 mse_elnet_D <- summary(lm((d_test - dhat_elnet_D)^2 ~ 1))$coef[1:2]
 r2_elnet_D <- 1 - mse_elnet_D[1] / var(d_test)
 cat("\nFlexible model R^2 (Elastic Net): ", r2_elnet_D)
@@ -161,6 +161,16 @@ yhat_lasso_m <- predict(fit_lasso_m, newx = model_m_test)
 
 ```
 
+
+```{r}
+#Je calcule l'erreur 
+yhat_lasso_m_train<-predict(fit_lasso_m, newx = model_m_train)
+mse_lasso_m_train <- summary(lm((y_train - yhat_lasso_m_train)^2 ~ 1))$coef[1:2]
+r2_lasso_m_train <- 1 - mse_lasso_m[1] / var(y_train)
+cat("\nFlexible model R^2 (LASSO): ", r2_lasso_m_train)
+```
+
+
 ```{r}
 #Je calcule l'erreur 
 mse_lasso_m <- summary(lm((y_test - yhat_lasso_m)^2 ~ 1))$coef[1:2]
@@ -174,6 +184,17 @@ fit_ridge_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 0)
 yhat_ridge_m <- predict(fit_ridge_m, newx = model_m_test)
 
 ```
+
+```{r}
+#Je calcule l'erreur 
+yhat_r_m_train<-predict(fit_ridge_m, newx = model_m_train)
+mse_r_m_train <- summary(lm((y_train - yhat_r_m_train)^2 ~ 1))$coef[1:2]
+r2_r_m_train <- 1 - mse_r_m_train[1] / var(y_train)
+cat("\nFlexible model R^2 (r): ", r2_r_m_train)
+```
+```
+
+
 
 ```{r}
 #Je calcule l'erreur 
