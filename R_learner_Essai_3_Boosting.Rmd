@@ -1,0 +1,265 @@
+---
+title: "R_learner_Essai_3_Boosting"
+author: "K.S"
+date: "2025-04-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+accuracy <- function(fit, x, y, s = "lambda.min") {
+  # Détecter la famille
+  family <- fit$glmnet.fit$call$family
+  if (is.null(family)) family <- "gaussian"  # par défaut
+
+  # Prédictions
+  if (family == "binomial") {
+    probs <- predict(fit, newx = x, s = s, type = "response")
+    pred_class <- as.numeric(probs > 0.5)
+    
+    # Métriques pour classification
+    acc <- mean(pred_class == y)
+    log_loss <- -mean(y * log(probs) + (1 - y) * log(1 - probs))
+
+    if (requireNamespace("pROC", quietly = TRUE)) {
+      auc <- pROC::auc(pROC::roc(y, probs))
+    } else {
+      auc <- NA
+      warning("Pour calculer l'AUC, installez le package `pROC`")
+    }
+
+    return(list(
+      type = "classification",
+      accuracy = acc,
+      log_loss = log_loss,
+      auc = auc
+    ))
+
+  } else {
+    y_hat <- predict(fit, newx = x, s = s)
+
+    # Métriques pour régression
+    rmse <- sqrt(mean((y - y_hat)^2))
+    mae <- mean(abs(y - y_hat))
+    r2 <- 1 - sum((y - y_hat)^2) / sum((y - mean(y))^2)
+
+    return(list(
+      type = "regression",
+      rmse = rmse,
+      mae = mae,
+      r2 = r2
+    ))
+  }
+}
+```
+
+```{r}
+evaluate_xgb_model <- function(model, x, y) {
+
+  # Récupérer le paramètre d'objectif
+  objective <- model$best_param$objective
+  
+  
+  # Prédiction
+  preds <- predict(model, x)
+  
+  if (objective == "binary:logistic") {
+    # Classification binaire
+    probs <- preds
+    pred_class <- as.numeric(probs > 0.5)
+    
+    accuracy <- mean(pred_class == y)
+    log_loss <- -mean(y * log(probs) + (1 - y) * log(1 - probs))
+    
+    if (requireNamespace("pROC", quietly = TRUE)) {
+      auc <- pROC::auc(pROC::roc(y, probs))
+    } else {
+      auc <- NA
+      warning("Pour calculer l'AUC, installez le package `pROC`")
+    }
+    
+    return(list(
+      type = "classification",
+      accuracy = accuracy,
+      log_loss = log_loss,
+      auc = auc
+    ))
+    
+  } else if (objective == "reg:squarederror") {
+    # Régression
+    rmse <- sqrt(mean((y - preds)^2))
+    mae <- mean(abs(y - preds))
+    r2 <- 1 - sum((y - preds)^2) / sum((y - mean(y))^2)
+    
+    return(list(
+      type = "regression",
+      rmse = rmse,
+      mae = mae,
+      r2 = r2
+    ))
+    
+  } else {
+    stop(paste("Objectif non pris en charge :", objective))
+  }
+}
+```
+
+
+
+```{r}
+controls <- c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
+  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
+  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
+  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
+  "B_Pgender_index2_impute", "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_q13_counselor", "B_q18_pta_meet", "B_q22_library", "B_q22_toilets", "B_q22_electricity",
+  "B_q22_avail_computers", "B_q22_avail_internet", "B_q22_sports_field", "B_q22_mid_meal",
+  "B_q22_auditorium", "B_q22_avail_edusat", "B_q21_week1", "B_q21_week6", "B_coed",
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+
+controls_simple<-c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
+  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
+  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
+  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
+  "B_Pgender_index2_impute", "B_coed",
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+
+
+
+new<-c("B_Ssibsize","B_m_edu_level","B_q22_library", "B_q22_toilets", "B_q22_electricity",
+  "B_q22_avail_computers", "B_q22_avail_internet", "B_q22_sports_field", "B_q22_mid_meal",
+  "B_q22_auditorium", "B_q22_avail_edusat") # à regarder demain.
+
+controls_exog<-c("B_Sgender_index2","B_Sage_class", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay","B_coed")
+
+var_hte<-c("B_Sage_class", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
+  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay","B_coed")
+
+## "B_m_edu_level" à traiter plus tard (trop de classe et valeurs manquantes aussi)
+
+```
+
+```{r}
+library(haven)
+path<- c("C:/Users/steph/Documents/ENSAE/Projet statapp/code perso/essai R")
+setwd(path)
+df <-read_dta("bt_analysis_final.dta")
+```
+
+```{r}
+#library(glmnet)
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+B_Sage_class = as.numeric(cut(
+      df1$B_Sage,
+      breaks = c(-Inf, 11, 13, 16, Inf),
+      include.lowest = TRUE,
+      right = FALSE
+    ))
+df1 <- df1 %>%
+  mutate(B_Sage_class=B_Sage_class)
+  
+#0-10, 11-15,16-20
+
+```
+
+```{r}
+Y=(df1$E_Sgender_index2)
+Z = as.matrix(df1[controls_exog])
+X = as.matrix(df1[var_hte])
+D=df1$B_treat
+#X=as.matrix(as.data.frame(scale(df1[controls_simple])))
+#X_expand=as.matrix(as.data.frame(expand_features(X,interactions = FALSE)))
+```
+
+
+```{r}
+#install.packages("devtools") 
+library(devtools) 
+install_github("xnie/rlearner")
+```
+
+```{r}
+library(rlearner)
+```
+
+```{r}
+Y.boost =cvboost(Z,Y,objective = "reg:squarederror",nthread=4, k_folds = 5,ntrees_max = 1000)
+Y.hat.boost = predict(Y.boost)
+
+D.boost = cvboost(Z,D,objective = "binary:logistic",nthread = 4, k_folds = 5,ntrees_max = 500)
+D.hat.boost = predict(D.boost)
+
+tau.boost = rboost(x = X, w = D, y = Y, p_hat = D.hat.boost, m_hat = Y.hat.boost, nthread = 4,ntrees_max = 750)
+tau.hat.boost = predict(tau.boost)
+
+```
+
+```{r}
+mean(tau.hat.boost[which(df1$B_Sgirl==1)])
+mean(tau.hat.boost[which(df1$B_Sgirl==0)])
+```
+
+```{r}
+evaluate_xgb_model(Y.boost,x=Z,y=Y)
+evaluate_xgb_model(D.boost,x=Z,y=D)
+#evaluate_xgb_model(tau.boost,x=X,y=Y)
+```
+
+
+```{r}
+library(dplyr)
+library(purrr)
+
+# variable d'intérêt
+y_var <- "tau.hat.boost"
+
+# variables catégorielles (même si elles sont de type numeric)
+vars <- var_hte
+
+df1 <- df1%>% mutate(tau.hat.boost = tau.hat.boost)
+
+# tableau des moyennes 
+
+
+```
+
+```{r}
+df1 %>%
+  group_by(B_Sage_class) %>%
+  summarise(mean_y = mean(tau.hat.boost, na.rm = TRUE))
+```
+
+
+```{r}
+resultats<-list()
+for (var in var_hte) {
+  resultats[[var]] <- df1 %>%
+    group_by(.data[[var]]) %>%
+    summarise(mean_y = mean(.data[[y_var]], na.rm = TRUE), .groups = "drop")
+}
+
+# Affichage des résultats
+resultats
+```
+
+```{r}
+
+
+# Initialisation d'une liste pour stocker les résultats
+modalites <- list()
+
+# Boucle pour chaque variable
+for (var in var_hte) {
+  modalites[[var]] <- table(df1[[var]])
+}
+modalites
+```
+
