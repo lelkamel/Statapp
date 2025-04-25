@@ -10,9 +10,21 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+install.packages("devtools")
+```
+
+
+```{r}
+library(devtools) 
+install_github("xnie/rlearner")
+```
+
+
+```{r}
 library(haven)     # For reading Stata files
 library(dplyr)
 library(glmnet)
+
 ```
 
 
@@ -23,19 +35,9 @@ data_path = 'C:/Users/lynae/OneDrive - GENES/Bureau/ENSAE/statapp/Base de donné
 data_brut <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 ```
 
-
-
-
 ```{r}
-#Je crée ma matrice X (régresseurs) pour l'étape m^ et t
-controls_simple<-c( "B_Sgender_index2","B_Sage", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim",
-  "B_no_female_sib", "B_no_male_sib", "B_Sparent_stay", "B_m_secondary", "B_m_parttime",
-  "B_m_fulltime", "B_Shouse_pukka_y", "B_Shouse_elec", "B_Sflush_toilet", "B_Snonflush_toilet",
-  "B_Sown_house", "B_Phh_durables_1", "B_Phh_durables_2", "B_Phh_durables_7", "B_Snewspaper_house",
-  "B_Stap_water", "B_Phh_durables_16", "B_Sefficacy_index2", "B_Ssocial_scale",
-  "B_Pgender_index2_impute", "B_coed",
-  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
-)
+#Je charge mes fonctions 
+source("my_functions.R")
 ```
 
 
@@ -55,12 +57,19 @@ data_test <- data[-training, ]
 ```
 #Travail sur ê
 
+```{r}
+selected_columns1 <- names(select(data, starts_with("district_gender_")))
+selected_columns2 <- names(select(data, starts_with("gender_grade_")))
+
+```
+
+
 
 ```{r}
 d_train <- data_train$B_treat
 d_test <- data_test$B_treat
 
-x_D <- c( "B_coed", "B_Sdistrict", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat")
+x_D <- c( "B_coed", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat", selected_columns1, selected_columns2)
 
 
 # POUR L'INSTANT : On garde uniquement les lignes complètes pour les variables utiles
@@ -122,7 +131,7 @@ cat("\nFlexible model R^2 (Elastic Net): ", r2_lasso_D)
 
 
 ```{r}
-x <- c("B_coed", "B_Sdistrict", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat")
+x <- c("B_coed", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat", selected_columns1, selected_columns2)
 ```
 
 ```{r}
@@ -158,162 +167,58 @@ mse_lasso_m <- summary(lm((y_test - yhat_lasso_m)^2 ~ 1))$coef[1:2]
 r2_lasso_m <- 1 - mse_lasso_m[1] / var(y_test)
 cat("\nFlexible model R^2 (LASSO): ", r2_lasso_m)
 ```
-
-
-
-
-
-
-############# TRAVAIL STEPHANE
 ```{r}
-library(glmnet)
-df1 <- df[-which(is.na(df$E_Sgender_index2)),]
-Y=(df1$E_Sgender_index2)
-X1 = df1[controls_simple]
-X=as.matrix(as.data.frame(scale(df1[controls_simple])))
+#Je prédis ê avec un algo dense 
 
-X_expand=as.matrix(as.data.frame(expand_features(X)))
-D=df1$B_treat
+fit_ridge_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 0)
+yhat_ridge_m <- predict(fit_ridge_m, newx = model_m_test)
+
+```
+
+```{r}
+#Je calcule l'erreur 
+mse_ridge_m <- summary(lm((y_test - yhat_ridge_m)^2 ~ 1))$coef[1:2]
+r2_ridge_m <- 1 - mse_ridge_m[1] / var(y_test)
+cat("\nFlexible model R^2 (RIDGE): ", r2_ridge_m)
+```
+
+```{r}
+#Je prédis ê avec un algo dense + sparse 
+
+fit_elv_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 0.5)
+yhat_elv_m <- predict(fit_elv_m, newx = model_m_test)
+
+```
+
+```{r}
+#Je calcule l'erreur 
+mse_elv_m <- summary(lm((y_test - yhat_elv_m)^2 ~ 1))$coef[1:2]
+r2_elv_m <- 1 - mse_elv_m[1] / var(y_test)
+cat("\nFlexible model R^2 (ELASTNET): ", r2_elv_m)
+```
+
+#Travail sur t 
+
+```{r}
+x_test = data_test_clean[x]
+y_tilde = y_test - yhat_lasso_m
+X_tilde = (d_test-mean(d_test))* cbind(1, x_test)
 ```
 
 
 
-#####----------méthode 1 : RIDGE #------------------------- (LASSO ne donne pas de resulat)
 ```{r}
-#X<-as.matrix(scale(expand_features(X))
-```
 
+tau_fit_lasso <- cv.glmnet(X_tilde,y_tilde,family="gaussian", alpha=1)
+tau_beta_lasso = as.vector(t(coef(tau_fit_lasso, s = "lambda.min")[-1]))
 
-## définition du nombre de découpes pour faire le cross-fit
-```{r}
-k_folds = 5
-foldid = sample(rep(seq(k_folds), length = length(D)))
-```
-
-## détermination du score de propension : D.hat (regression logistique)
-```{r}
-D.lasso<-cv.glmnet(X_expand,D,family="binomial",foldid = foldid, keep=TRUE,alpha=1)
-theta.hat.lasso<-D.lasso$fit.preval[,!is.na(colSums(D.lasso$fit.preval))][,D.lasso$lambda==D.lasso$lambda.min] #theta c'est X'beta
-D.hat.lasso = 1/(1 + exp(-theta.hat.lasso)) #D.hat c'est P(D=1|X) = F(X'bet) avec F densité d'une logistique
-lasso_accuracy(fit=D.lasso,x=X_expand,y=D)
-```
-
-## détermination de E(Y|X) : Y.hat
-```{r}
-Y.lasso<-cv.glmnet(X_expand,Y,family="gaussian",foldid = foldid, keep=TRUE,alpha=0)
-Y.hat.lasso<-Y.lasso$fit.preval[,!is.na(colSums(Y.lasso$fit.preval))][,Y.lasso$lambda==Y.lasso$lambda.min]
-lasso_accuracy(fit=Y.lasso,x=X_expand,y=Y)
-```
-
-## fit le R-learner
-```{r}
-Y_tilde = Y - Y.hat.lasso
-X_tilde = cbind(as.numeric(D - D.hat.lasso)* cbind(1,X_expand)) #Pour le R-S learner, on rajoute encore X dans X_tilde
-tau_fit <- cv.glmnet(X_tilde,Y_tilde,family="gaussian",foldid = foldid,alpha=1)
-tau_beta = as.vector(t(coef(tau_fit, s = "lambda.min")[-1]))
-
-tau_hat = cbind(1,X_expand) %*% tau_beta
-tau_beta
-```
-```{r}
-coeffs1 <- coef(tau_fit, s= "lambda.min")
-cbind(row.names(coeffs1)[order(abs(coeffs1), decreasing = TRUE)], coeffs1[order(abs(coeffs1), decreasing = TRUE)])
-```
-
-```{r}
-mean(tau_hat[which(df1$B_Sgirl==1)])
-mean(tau_hat[which(df1$B_Sgirl==0)])
-```
-
-```{r}
-lasso_accuracy <- function(fit, x, y, s = "lambda.min") {
-  # Détecter la famille
-  family <- fit$glmnet.fit$call$family
-  if (is.null(family)) family <- "gaussian"  # par défaut
-
-  # Prédictions
-  if (family == "binomial") {
-    probs <- predict(fit, newx = x, s = s, type = "response")
-    pred_class <- as.numeric(probs > 0.5)
-    
-    # Métriques pour classification
-    acc <- mean(pred_class == y)
-    log_loss <- -mean(y * log(probs) + (1 - y) * log(1 - probs))
-
-    if (requireNamespace("pROC", quietly = TRUE)) {
-      auc <- pROC::auc(pROC::roc(y, probs))
-    } else {
-      auc <- NA
-      warning("Pour calculer l'AUC, installez le package `pROC`")
-    }
-
-    return(list(
-      type = "classification",
-      accuracy = acc,
-      log_loss = log_loss,
-      auc = auc
-    ))
-
-  } else {
-    y_hat <- predict(fit, newx = x, s = s)
-
-    # Métriques pour régression
-    rmse <- sqrt(mean((y - y_hat)^2))
-    mae <- mean(abs(y - y_hat))
-    r2 <- 1 - sum((y - y_hat)^2) / sum((y - mean(y))^2)
-
-    return(list(
-      type = "regression",
-      rmse = rmse,
-      mae = mae,
-      r2 = r2
-    ))
-  }
-}
+tau_hat_lasso = cbind(1,x_test) %*% tau_beta_lasso
+tau_beta_lasso
 ```
 
 
 
-
 ```{r}
-expand_features <- function(X, interactions = TRUE, squares = TRUE) {
-  X <- as.data.frame(X)
-  var_names <- colnames(X)
-
-  new_features <- list()
-
-  # Variables originales
-  new_features[["linear"]] <- X
-
-  # Carrés des variables
-  if (squares) {
-    squares_df <- X^2
-    colnames(squares_df) <- paste0(var_names, "_sq")
-    new_features[["squares"]] <- squares_df
-  }
-
-  # Interactions croisées
-  if (interactions) {
-    inter_mat <- list()
-    p <- ncol(X)
-    for (i in 1:(p - 1)) {
-      for (j in (i + 1):p) {
-        new_col <- X[[i]] * X[[j]]
-        name <- paste0(var_names[i], "_x_", var_names[j])
-        inter_mat[[name]] <- new_col
-      }
-    }
-    new_features[["interactions"]] <- as.data.frame(inter_mat)
-  }
-
-  # Fusionner toutes les features
-  X_expanded <- do.call(cbind, new_features)
-  return(X_expanded)
-}
-```
-
-
-
 
 ```
 
