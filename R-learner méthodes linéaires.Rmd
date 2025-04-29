@@ -353,6 +353,28 @@ cat("\nModèle flexible R^2 (RIDGE) in-sample: ", r2_ridge_flex_m_train)
 cat("\nModèle flexible R^2 (ELASTNET) in-sample: ", r2_elnet_flex_m_train) 
 
 ```
+```{r}
+#Calcul de l'erreur out-sample pour les trois
+yhat_lasso_flex_train <- predict(fit_lasso_m_flex, newx = model_flex_m_train)
+yhat_ridge_flex_train <- predict(fit_ridge_m_flex, newx = model_flex_m_train)
+yhat_elnet_flex_train <- predict(fit_elnet_m_flex, newx = model_flex_m_train)
+
+
+mse_lasso_flex_m_train <- summary(lm((y_train - yhat_lasso_flex_train)^2 ~ 1))$coef[1:2]
+mse_ridge_flex_m_train <- summary(lm((y_train - yhat_ridge_flex_train )^2 ~ 1))$coef[1:2]
+mse_elnet_flex_m_train <- summary(lm((y_train - yhat_elnet_flex_train )^2 ~ 1))$coef[1:2]
+
+r2_lasso_flex_m_train <- 1 - mse_lasso_flex_m_train [1] / var(y_train)
+r2_ridge_flex_m_train <- 1 - mse_ridge_flex_m_train[1] / var(y_train)
+r2_elnet_flex_m_train <- 1 - mse_elnet_flex_m_train[1] / var(y_train)
+
+
+# Résultat in sample (flexible model)
+cat("\nModèle flexible R^2 (LASSO) in-sample: ",r2_lasso_flex_m_train) 
+cat("\nModèle flexible R^2 (RIDGE) in-sample: ", r2_ridge_flex_m_train) 
+cat("\nModèle flexible R^2 (ELASTNET) in-sample: ", r2_elnet_flex_m_train) 
+
+```
 
 
 
