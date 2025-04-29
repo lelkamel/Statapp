@@ -145,6 +145,18 @@ var_hte<-c("B_Sage_class", "B_Sgrade6", "B_rural", "B_Sgirl", "B_Sdistrict", "B_
 
 ## "B_m_edu_level" à traiter plus tard (trop de classe et valeurs manquantes aussi)
 
+x_basic <- c( "B_Sgender_index2","B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
+"B_no_female_sib", "B_no_male_sib", "B_Solder_sister",  "B_Sradio_house",          
+
+"B_rural","B_Sdistrict", "B_Scaste",
+  
+"B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
+
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
+)
+
+#"B_Solder"
 ```
 
 ```{r}
@@ -170,10 +182,23 @@ df1 <- df1 %>%
 
 ```
 
+
+```{r}
+nb_lignes_manquantes <- sum(!complete.cases(df1[, x_basic]))
+
+# Afficher le résultat
+cat("Nombre de lignes avec au moins une valeur manquante :", nb_lignes_manquantes, "\n")
+```
+
+```{r}
+#suppresssion lignes incomplètes.
+df1 <- df1[complete.cases(df1[, x_basic]), ]
+```
+
 ```{r}
 Y=(df1$E_Sgender_index2)
-Z = as.matrix(df1[controls_exog])
-X = as.matrix(df1[var_hte])
+Z = as.matrix(df1[x_basic])
+X = as.matrix(df1[x_basic])
 D=df1$B_treat
 #X=as.matrix(as.data.frame(scale(df1[controls_simple])))
 #X_expand=as.matrix(as.data.frame(expand_features(X,interactions = FALSE)))
@@ -194,7 +219,7 @@ library(rlearner)
 Y.boost =cvboost(Z,Y,objective = "reg:squarederror",nthread=4, k_folds = 5,ntrees_max = 1000)
 Y.hat.boost = predict(Y.boost)
 
-D.boost = cvboost(Z,D,objective = "binary:logistic",nthread = 4, k_folds = 5,ntrees_max = 500)
+D.boost = cvboost(Z,D,objective = "binary:logistic",nthread = 4, k_folds = 5,ntrees_max = 250) #avec 500 arbres il classfie parfaitement
 D.hat.boost = predict(D.boost)
 
 tau.boost = rboost(x = X, w = D, y = Y, p_hat = D.hat.boost, m_hat = Y.hat.boost, nthread = 4,ntrees_max = 750)
@@ -202,10 +227,6 @@ tau.hat.boost = predict(tau.boost)
 
 ```
 
-```{r}
-mean(tau.hat.boost[which(df1$B_Sgirl==1)])
-mean(tau.hat.boost[which(df1$B_Sgirl==0)])
-```
 
 ```{r}
 evaluate_xgb_model(Y.boost,x=Z,y=Y)
@@ -233,14 +254,14 @@ df1 <- df1%>% mutate(tau.hat.boost = tau.hat.boost)
 
 ```{r}
 df1 %>%
-  group_by(B_Sage_class) %>%
+  group_by(B_Sgirl) %>%
   summarise(mean_y = mean(tau.hat.boost, na.rm = TRUE))
 ```
 
 
 ```{r}
 resultats<-list()
-for (var in var_hte) {
+for (var in x_basic) {
   resultats[[var]] <- df1 %>%
     group_by(.data[[var]]) %>%
     summarise(mean_y = mean(.data[[y_var]], na.rm = TRUE), .groups = "drop")
@@ -257,7 +278,7 @@ resultats
 modalites <- list()
 
 # Boucle pour chaque variable
-for (var in var_hte) {
+for (var in x_basic) {
   modalites[[var]] <- table(df1[[var]])
 }
 modalites
