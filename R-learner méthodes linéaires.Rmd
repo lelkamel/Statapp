@@ -270,21 +270,89 @@ p_flex
 ```
 ```{r}
 #J'utilise les 3 algo linéaires
-fit_lasso_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 1)
-fit_ridge_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 0)
-fit_elnet_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = .5)
+fit_lasso_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 1, nfolds = 5)
+fit_ridge_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 0, nfolds = 5)
+fit_elnet_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = .5, nfolds = 5)
 
 ```
 
 
 ```{r}
 #Calcul de l'erreur in-sample pour les trois
-dhat_lasso_flex_train <- predict(fit_lasso_d_flex, newx = model_x_flex_train)
-yhat_ridge_flex <- predict(fit_ridge_flex, newx = model_x_flex_test)
-yhat_elnet_flex <- predict(fit_elnet_flex, newx = model_x_flex_test)
+dhat_lasso_flex_train <- predict(fit_lasso_d_flex, newx = model_flex_D_train)
+dhat_ridge_flex_train <- predict(fit_ridge_d_flex, newx = model_flex_D_train)
+dhat_elnet_flex_train <- predict(fit_elnet_d_flex, newx = model_flex_D_train)
+
+error_lasso_flex_train <- mean((dhat_lasso_flex_train > 0.5) != d_train) # Erreur 0-1 
+error_ridge_flex_train <- mean((dhat_ridge_flex_train > 0.5) != d_train) # Erreur 0-1
+error_elnet_flex_train <- mean((dhat_elnet_flex_train > 0.5) != d_train) # Erreur 0-1
+
+# Résultat in sample (flexible model)
+cat("Flexible model (Lasso) in sample : ", error_lasso_flex_train)
+cat("\nFlexible model (Ridge) in sample: ", error_ridge_flex_train)
+cat("\nFlexible model (Elastic Net)in sample : ", error_elnet_flex_train)
 
 ```
 
+
+```{r}
+#Calcul de l'erreur out-sample pour les trois
+dhat_lasso_flex_test <- predict(fit_lasso_d_flex, newx = model_flex_D_test)
+dhat_ridge_flex_test <- predict(fit_ridge_d_flex, newx = model_flex_D_test)
+dhat_elnet_flex_test <- predict(fit_elnet_d_flex, newx = model_flex_D_test)
+
+error_lasso_flex_test <- mean((dhat_lasso_flex_test > 0.5) != d_test) # Erreur 0-1 
+error_ridge_flex_test <- mean((dhat_ridge_flex_test > 0.5) != d_test) # Erreur 0-1
+error_elnet_flex_test <- mean((dhat_elnet_flex_test > 0.5) != d_test) # Erreur 0-1
+
+# Résultat in sample (flexible model)
+cat("Flexible model (Lasso) out sample : ", error_lasso_flex_test)
+cat("\nFlexible model (Ridge) out sample: ", error_ridge_flex_test)
+cat("\nFlexible model (Elastic Net)out sample : ", error_elnet_flex_test)
+
+```
+
+### Estimation de m
+
+```{r}
+formula_flex_m <- as.formula(paste("E2_Sgender_index2", "~", paste(x_flex, collapse = " + ")))
+model_flex_m_train <- model.matrix(formula_flex_m , data_train)
+model_flex_m_test <- model.matrix(formula_flex_m , data_test)
+p_flex <- dim(model_flex_m_train)[2]
+p_flex
+```
+
+
+```{r}
+#J'utilise les 3 algo linéaires
+fit_lasso_m_flex <- cv.glmnet(model_flex_m_train, y_train, family = "gaussian", alpha = 1, nfolds = 5)
+fit_ridge_m_flex <- cv.glmnet(model_flex_m_train, y_train, family = "gaussian", alpha = 0, nfolds = 5)
+fit_elnet_m_flex <- cv.glmnet(model_flex_m_train, y_train, family = "gaussian", alpha = .5, nfolds = 5)
+
+```
+
+```{r}
+#Calcul de l'erreur in-sample pour les trois
+yhat_lasso_flex_train <- predict(fit_lasso_m_flex, newx = model_flex_m_train)
+yhat_ridge_flex_train <- predict(fit_ridge_m_flex, newx = model_flex_m_train)
+yhat_elnet_flex_train <- predict(fit_elnet_m_flex, newx = model_flex_m_train)
+
+
+mse_lasso_flex_m_train <- summary(lm((y_train - yhat_lasso_flex_train)^2 ~ 1))$coef[1:2]
+mse_ridge_flex_m_train <- summary(lm((y_train - yhat_ridge_flex_train )^2 ~ 1))$coef[1:2]
+mse_elnet_flex_m_train <- summary(lm((y_train - yhat_elnet_flex_train )^2 ~ 1))$coef[1:2]
+
+r2_lasso_flex_m_train <- 1 - mse_lasso_flex_m_train [1] / var(y_train)
+r2_ridge_flex_m_train <- 1 - mse_ridge_flex_m_train[1] / var(y_train)
+r2_elnet_flex_m_train <- 1 - mse_elnet_flex_m_train[1] / var(y_train)
+
+
+# Résultat in sample (flexible model)
+cat("\nModèle flexible R^2 (LASSO) in-sample: ",r2_lasso_flex_m_train) 
+cat("\nModèle flexible R^2 (RIDGE) in-sample: ", r2_ridge_flex_m_train) 
+cat("\nModèle flexible R^2 (ELASTNET) in-sample: ", r2_elnet_flex_m_train) 
+
+```
 
 
 
@@ -300,7 +368,6 @@ X_tilde = (d_test-mean(d_test))* cbind(1, x_test)
 
 
 ```{r}
-
 tau_fit_lasso <- cv.glmnet(X_tilde,y_tilde,family="gaussian", alpha=1)
 tau_beta_lasso = as.vector(t(coef(tau_fit_lasso, s = "lambda.min")[-1]))
 
@@ -308,10 +375,5 @@ tau_hat_lasso = cbind(1,x_test) %*% tau_beta_lasso
 tau_beta_lasso
 ```
 
-
-
-```{r}
-
-```
 
 
