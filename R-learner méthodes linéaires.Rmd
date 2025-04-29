@@ -35,18 +35,6 @@ data_brut <- read_dta(paste0(data_path, "/bt_analysis_final.dta"))
 source("my_functions.R")
 ```
 
-# Problème des flag
-```{r}
-data_flag <- data_brut[
- 
-    data_brut$B_Saccess_mobile_flag== 1,
-]
-```
-
-```{r}
-
-```
-
 
 
 # Modèles linéaires
@@ -62,31 +50,22 @@ Pour prédire e* et m* à partir des covariables X, je considère 3 types de mod
 data <- data_brut[-which(is.na(data_brut$E2_Sgender_index2)),]
 ```
 
-
-```{r}
-#Divise ma base de données en 2 : 75 % pour entraîner le modèle et 25 % pour le test
-set.seed(1234)
-training <- sample(nrow(data), nrow(data) * (3 / 4), replace = FALSE)
-
-data_train <- data[training, ]
-data_test <- data[-training, ]
-```
-
-
 ```{r}
 data$B_Solder <- ifelse(data$B_Ssibsize - data$B_Ssibsize_young == 1, 1, 0)
 
 ```
 
 
-television
+
+
+## Modèle basique
 
 
 ```{r}
 x_basic <- c( "B_Sgender_index2","B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
 "B_no_female_sib", "B_no_male_sib", "B_Solder_sister", "B_Solder", "B_Sradio_house",          
 
-"B_rural","district", "B_Scaste",
+"B_rural","B_Sdistrict", "B_Scaste",
   
 "B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
   "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
@@ -94,13 +73,27 @@ x_basic <- c( "B_Sgender_index2","B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high"
   "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part"
 )
 
+```
 
+```{r}
+colSums(is.na(data[ , x_basic]))#nombre de valeurs na dans chaque variable
+na_data <- data[apply(data[ , x_basic], 1, function(row) any(is.na(row))), ]
+data_clean <- data[!apply(data[ , x_basic], 1, function(row) any(is.na(row))), ]#J'enleve les individus concernés (3% de la base)
+```
 
+```{r}
+#Divise ma base de données en 2 : 75 % pour entraîner le modèle et 25 % pour le test
+set.seed(1234)
+training <- sample(nrow(data_clean), nrow(data_clean) * (3 / 4), replace = FALSE)
+
+data_train <- data_clean[training, ]
+data_test <- data_clean[-training, ]
 ```
 
 
 
-## Low dimensional specification (basic)
+
+
 
 ### Prédiction de ê
 
@@ -111,24 +104,15 @@ d_test <- data_test$B_treat
 x_D <- x_basic
 ```
 
-```{r}
-# PROBLEME DE VARIABLES MANQUANTES : On garde uniquement les lignes complètes pour les variables utiles
-vars_D <- c("B_treat", x_D)
-data_train_clean <- data_train[complete.cases(data_train[, vars_D]), ]
-data_test_clean <- data_test[complete.cases(data_test[, vars_D]), ]
-
-# On construit les objets à partir de ces données nettoyées
-d_train <- data_train_clean$B_treat
-d_test <- data_test_clean$B_treat
-```
-
 
 ```{r}
 #Je crée ma matrice X (régresseurs) pour l'étape ê
 
 formula_D <- as.formula(paste("B_treat", "~", paste(x_D, collapse = " + ")))
-model_x_D_train <- model.matrix(formula_D, data_train_clean)
-model_x_D_test <- model.matrix(formula_D, data_test_clean)
+model_x_D_train <- model.matrix(formula_D, data_train)
+model_x_D_test <- model.matrix(formula_D, data_test)
+p_basique_D <- dim(model_x_D_train)[2]
+p_basique_D
 ```
 
 
@@ -142,13 +126,19 @@ dhat_elnet_D <- predict(fit_elnet_D, newx = model_x_D_test)
 ```
 
 ```{r}
-#Je calcule l'erreur (autre chose que le r^2, à reprendre)
-mse_elnet_D <- summary(lm((d_test - dhat_elnet_D)^2 ~ 1))$coef[1:2]
-r2_elnet_D <- 1 - mse_elnet_D[1] / var(d_test)
-cat("\nFlexible model R^2 (Elastic Net): ", r2_elnet_D)
-```
+#Je calcule l'erreur 
 
-Modèle terrible...
+error_01 <- mean((dhat_elnet_D > 0.5) != d_test) # Erreur 0-1 (prédictions classées selon seuil 0.5)
+
+
+# Log-loss (log-likelihood négative moyenne)
+epsilon <- 1e-15  # pour éviter log(0)
+p_hat <- pmin(pmax(dhat_elnet_D, epsilon), 1 - epsilon)  # stabiliser
+log_loss <- -mean(d_test * log(p_hat) + (1 - d_test) * log(1 - p_hat))
+
+cat("\nErreur logistique (log-loss) :", round(log_loss, 4))
+cat("\nErreur 0-1 (taux de mauvaise classification) :", round(error_01, 4))
+```
 
 ```{r}
 #Je prédis ê avec un algo sparse 
@@ -160,9 +150,17 @@ dhat_lasso_D <- predict(fit_lasso_D, newx = model_x_D_test)
 
 ```{r}
 #Je calcule l'erreur 
-mse_lasso_D <- summary(lm((d_test - dhat_lasso_D)^2 ~ 1))$coef[1:2]
-r2_lasso_D <- 1 - mse_lasso_D[1] / var(d_test)
-cat("\nFlexible model R^2 (Elastic Net): ", r2_lasso_D)
+error_02 <- mean((dhat_lasso_D> 0.5) != d_test) # Erreur 0-1 (prédictions classées selon seuil 0.5)
+
+
+# Log-loss (log-likelihood négative moyenne)
+epsilon <- 1e-15  # pour éviter log(0)
+p_hat <- pmin(pmax(dhat_lasso_D, epsilon), 1 - epsilon)  # stabiliser
+log_loss2 <- -mean(d_test * log(p_hat) + (1 - d_test) * log(1 - p_hat))
+
+cat("\nErreur logistique (log-loss) :", round(log_loss2, 4))
+cat("\nErreur 0-1 (taux de mauvaise classification) :", round(error_02, 4))
+
 ```
 
 
@@ -170,33 +168,24 @@ cat("\nFlexible model R^2 (Elastic Net): ", r2_lasso_D)
 
 
 ```{r}
-x <- c("B_coed", "B_rural", "B_Scaste_sc", "B_Scaste_st", "B_Smuslim", "B_no_female_sib", "B_m_edu_level", "B_Shouse_pukka_y", "B_Sgirl", "B_Sage_cat", selected_columns1, selected_columns2)
-```
-
-```{r}
-# POUR L'INSTANT : On garde uniquement les lignes complètes pour les variables utiles
-vars <- c("E2_Sgender_index2", x)
-data_train_clean <- data_train[complete.cases(data_train[, vars]), ]
-data_test_clean <- data_test[complete.cases(data_test[, vars]), ]
-
 # On construit les objets à partir de ces données nettoyées
-y_train <- data_train_clean$E2_Sgender_index2
-y_test <- data_test_clean$E2_Sgender_index2
+y_train <- data_train$E2_Sgender_index2
+y_test <- data_test$E2_Sgender_index2
 ```
 
 ```{r}
 #Je crée ma matrice X (régresseurs) pour l'étape m
 
-formula_m <- as.formula(paste("E2_Sgender_index2", "~", paste(x, collapse = " + ")))
-model_m_train <- model.matrix(formula_m, data_train_clean)
-model_m_test <- model.matrix(formula_m, data_test_clean)
+formula_m <- as.formula(paste("E2_Sgender_index2", "~", paste(x_D, collapse = " + ")))
+model_m_train <- model.matrix(formula_m, data_train)
+model_m_test <- model.matrix(formula_m, data_test)
+
 ```
 
 ```{r}
-#Je prédis ê avec un algo sparse 
+# m avec un algo sparse 
 
-fit_lasso_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 1)
-yhat_lasso_m <- predict(fit_lasso_m, newx = model_m_test)
+fit_lasso_m <- cv.glmnet(model_m_train, y_train, family = "gaussian", alpha = 1)
 
 ```
 
@@ -205,57 +194,100 @@ yhat_lasso_m <- predict(fit_lasso_m, newx = model_m_test)
 #Je calcule l'erreur 
 yhat_lasso_m_train<-predict(fit_lasso_m, newx = model_m_train)
 mse_lasso_m_train <- summary(lm((y_train - yhat_lasso_m_train)^2 ~ 1))$coef[1:2]
-r2_lasso_m_train <- 1 - mse_lasso_m[1] / var(y_train)
-cat("\nFlexible model R^2 (LASSO): ", r2_lasso_m_train)
+r2_lasso_m_train <- 1 - mse_lasso_m_train[1] / var(y_train)
+cat("\nModel basique R^2 (LASSO), in-sample: ", r2_lasso_m_train)
 ```
 
 
 ```{r}
-#Je calcule l'erreur 
-mse_lasso_m <- summary(lm((y_test - yhat_lasso_m)^2 ~ 1))$coef[1:2]
-r2_lasso_m <- 1 - mse_lasso_m[1] / var(y_test)
-cat("\nFlexible model R^2 (LASSO): ", r2_lasso_m)
-```
-```{r}
-#Je prédis ê avec un algo dense 
-
-fit_ridge_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 0)
-yhat_ridge_m <- predict(fit_ridge_m, newx = model_m_test)
-
+#Je calcule l'erreur
+yhat_lasso_m_test<-predict(fit_lasso_m, newx = model_m_test)
+mse_lasso_m_test <- summary(lm((y_test - yhat_lasso_m_test)^2 ~ 1))$coef[1:2]
+r2_lasso_m_test <- 1 - mse_lasso_m_test[1] / var(y_test)
+cat("\nModel basique R^2 (LASSO), out-sample: ", r2_lasso_m_test)
 ```
 
+
 ```{r}
-#Je calcule l'erreur 
+#Je calcule le modèle m avec un algo dense 
+fit_ridge_m <- cv.glmnet(model_m_train, y_train, family = "gaussian", alpha = 0)
+```
+
+```{r}
+#Je calcule l'erreur in-sample
 yhat_r_m_train<-predict(fit_ridge_m, newx = model_m_train)
 mse_r_m_train <- summary(lm((y_train - yhat_r_m_train)^2 ~ 1))$coef[1:2]
 r2_r_m_train <- 1 - mse_r_m_train[1] / var(y_train)
-cat("\nFlexible model R^2 (r): ", r2_r_m_train)
+cat("\nModèle basique R^2 (r) in-sample: ", r2_r_m_train)
 ```
-```
-
-
 
 ```{r}
-#Je calcule l'erreur 
-mse_ridge_m <- summary(lm((y_test - yhat_ridge_m)^2 ~ 1))$coef[1:2]
-r2_ridge_m <- 1 - mse_ridge_m[1] / var(y_test)
-cat("\nFlexible model R^2 (RIDGE): ", r2_ridge_m)
+#Je calcule l'erreur out-sample
+yhat_r_m_test<-predict(fit_ridge_m, newx = model_m_test)
+mse_r_m_test <- summary(lm((y_test - yhat_r_m_test)^2 ~ 1))$coef[1:2]
+r2_r_m_test <- 1 - mse_r_m_test[1] / var(y_test)
+cat("\nModèle basique R^2 (r) outn-sample: ", r2_r_m_test)
 ```
+
 
 ```{r}
 #Je prédis ê avec un algo dense + sparse 
-
-fit_elv_m <- cv.glmnet(model_m_train, d_train, family = "gaussian", alpha = 0.5)
-yhat_elv_m <- predict(fit_elv_m, newx = model_m_test)
-
+fit_elv_m <- cv.glmnet(model_m_train, y_train, family = "gaussian", alpha = 0.5)
 ```
 
 ```{r}
-#Je calcule l'erreur 
-mse_elv_m <- summary(lm((y_test - yhat_elv_m)^2 ~ 1))$coef[1:2]
-r2_elv_m <- 1 - mse_elv_m[1] / var(y_test)
-cat("\nFlexible model R^2 (ELASTNET): ", r2_elv_m)
+#Je calcule l'erreur in sample
+yhat_elv_m_train <- predict(fit_elv_m, newx = model_m_train)
+mse_elv_m_train <- summary(lm((y_train - yhat_elv_m_train)^2 ~ 1))$coef[1:2]
+r2_elv_m_train <- 1 - mse_elv_m_train[1] / var(y_train)
+cat("\nModèle basique R^2 (ELASTNET) in-sample: ", r2_elv_m_train)
 ```
+```{r}
+#Je calcule l'erreur out sample
+yhat_elv_m_test <- predict(fit_elv_m, newx = model_m_test)
+mse_elv_m_test <- summary(lm((y_test - yhat_elv_m_test)^2 ~ 1))$coef[1:2]
+r2_elv_m_test <- 1 - mse_elv_m_test[1] / var(y_test)
+cat("\nModèle basique R^2 (ELASTNET) out-sample: ", r2_elv_m_test)
+```
+
+## Modèle avec interaction 
+
+```{r}
+# Création des interactions bilinéaires (sans carrés)
+interactions <- combn(x_basic, 2, FUN = function(x) paste(x[1], x[2], sep=":"))
+
+# Création de la formule
+x_flex <- paste(c(x_basic, interactions), collapse = " + ")
+```
+
+### Estimation de e
+```{r}
+formula_flex_D <- as.formula(paste("B_treat", "~", paste(x_flex, collapse = " + ")))
+model_flex_D_train <- model.matrix(formula_flex_D, data_train)
+model_flex_D_test <- model.matrix(formula_flex_D, data_test)
+p_flex <- dim(model_flex_D_train)[2]
+p_flex
+```
+```{r}
+#J'utilise les 3 algo linéaires
+fit_lasso_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 1)
+fit_ridge_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = 0)
+fit_elnet_d_flex <- cv.glmnet(model_flex_D_train, d_train, family = "binomial", alpha = .5)
+
+```
+
+
+```{r}
+#Calcul de l'erreur in-sample pour les trois
+dhat_lasso_flex_train <- predict(fit_lasso_d_flex, newx = model_x_flex_train)
+yhat_ridge_flex <- predict(fit_ridge_flex, newx = model_x_flex_test)
+yhat_elnet_flex <- predict(fit_elnet_flex, newx = model_x_flex_test)
+
+```
+
+
+
+
 
 #Travail sur t 
 
