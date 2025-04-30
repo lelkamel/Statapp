@@ -118,6 +118,8 @@ D= as.vector(df1$B_treat)
 Sschool_id = as.numeric(df1$Sschool_id)
 ```
 
+# Estimation de e* et m*
+
 ```{r}
 #On commence par estimer e* et m* grâce aux forêts
 Y.forest = regression_forest(X,Y,clusters=Sschool_id,equalize.cluster.weights = TRUE)
@@ -132,12 +134,15 @@ evaluate_model_grf(Y.forest,Y)
 evaluate_model_grf(D.forest,D)
 ```
 
+# Entraînement des modèles
+##Modèle de forêt causale prenant en compte les clusters et toutes les variables X
+
+
 ```{r}
 #On entraîne le modèle de forêt causale en injectant le Y.hat et le W.hat calculé auparavant
 cf.raw = causal_forest(X,Y,D, Y.hat = Y.hat.forest, W.hat = D.hat.forest, clusters = Sschool_id, equalize.cluster.weights = TRUE,tune.parameters = "all")
 
 ```
-
 
 
 ```{r}
@@ -153,29 +158,32 @@ var_imp_selected
 cf<-cf.raw
 ```
 
+```{r}
+#Estimation du CATE
+tau.hat.forest = predict(cf)$predictions
+mean(tau.hat.forest) #mean à 0.181 presque exactement l'effet du papier.
+```
 
+
+
+## Modèle de forêt causale prenant en compte les clusters et uniquement les X ayant le + de poids
 ```{r}
 #Modèle ne retenant que les variables ayant le + de poids
 cf_var_imp = causal_forest(X[,selected.idx], Y, D,
                    Y.hat = Y.hat.forest, W.hat = D.hat.forest,
-                  clusters = school.id,
+                  clusters = Sschool_id,
                    equalize.cluster.weights = TRUE,
                    tune.parameters = "all")
 ```
 
 ```{r}
 tau.hat.forest.var.imp = predict(cf_var_imp)$predictions
-mean(tau.hat.forest.var.imp)
-```
-
-
-```{r}
-tau.hat.forest = predict(cf)$predictions
-mean(tau.hat.forest) #mean à 0.181 presque exactement l'effet du papier.
+mean(tau.hat.forest.var.imp) #On retrouve l'effet moyen du papier également, quoiqu'on est plus proche qu'avec le premier modèle
 ```
 
 # histogram of CATE
 ```{r}
+#Modèle avec tous les X
 hist(tau.hat.forest,main="Histogram of estimate CATE")
 ```
 
@@ -187,11 +195,19 @@ hist(tau.hat.forest.var.imp,main="Histogram of estimate CATE in the reduced mode
 #estimation de l'ATE
 
 ```{r}
-
+#Significativité statistique de l'ATE du modèle 1
 ATE = average_treatment_effect(cf)
 paste("95% CI for the ATE:", round(ATE[1], 3),
       "+/-", round(qnorm(0.975) * ATE[2], 3)) #effet de traitement positif
 ```
+
+```{r}
+#Significativité statistique de l'ATE du modèle 2
+ATE = average_treatment_effect(cf_var_imp)
+paste("95% CI for the ATE:", round(ATE[1], 3),
+      "+/-", round(qnorm(0.975) * ATE[2], 3))
+```
+
 
 # Assessing heterogeneity
 
@@ -211,7 +227,57 @@ paste("95% CI for difference in ATE:",
 test_calibration(cf) 
 ### coefficient Di non significatif --pas d'hétérogénéité individuelle détectée
 ```
+
+
 # Heterogeneity across variables
+
+Vraie question : à partir de quel taux de variation juge-t-on que l'on a une hétérogénéité pertinente à explorer ? 
+
+```{r}
+#Modèle parcimonieux : variable Cfem_lit_rate
+pardef = par(mar = c(5, 4, 4, 2) + 0.5, cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
+boxplot(tau.hat.forest.var.imp~ cut(X$Cfem_lit_rate, breaks=10), 
+        xlab = "Cfem_lit_rate (découpé en 10 groupes)", 
+        ylab = "estimated CATE")
+lines(smooth.spline(X$Cfem_lit_rate, tau.hat.forest.var.imp, df = 4), lwd = 2, col = 4)
+
+#Y a pas l'air d'y avoir une hétérogénéité folle, après mes catégories sont complètement arbitraires ..
+```
+
+```{r}
+#Modèle parcimonieux : variable B_pct_female_teacher
+pardef = par(mar = c(5, 4, 4, 2) + 0.5, cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
+boxplot(tau.hat.forest.var.imp ~ cut(X$Cfem_lit_rate, breaks=10), xlab = "B_pct_female_teacher (découpé en 10 groupes)", ylab = "estimated CATE")
+lines(smooth.spline(X$B_pct_female_teacher, tau.hat.forest.var.imp, df = 4), lwd = 2, col = 4)
+
+#De l'hétérogénéité t'as peur... Mais encore une fois des outliers.
+```
+
+```{r}
+#Modèle parcimonieux : variable B_fulltime_teacher
+pardef = par(mar = c(5, 4, 4, 2) + 0.5, cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
+boxplot(tau.hat.forest.var.imp ~ cut(X$B_fulltime_teacher, breaks=20), xlab = "Sschool_id (découpé en 20)", ylab = "estimated CATE")
+lines(smooth.spline(X$B_fulltime_teacher, tau.hat.forest.var.imp, df = 4), lwd = 2, col = 4)
+
+Comment conclure ?
+```
+
+## Exploration + fine de l'hétérogénéité
+```{r}
+#Je prends un sous-groupe qui affiche pas mal d'outlier et je creuse la q°
+subgroup <- which(X$Cfem_lit_rate >= 0.52 & X$Cfem_lit_rate <= 0.55)
+summary(tau.hat.forest.var.imp[subgroup])
+boxplot(tau.hat.forest.var.imp[subgroup], main = "CATE for 0.52 <= Cfem_lit_rate <= 0.55")
+
+# Pour voir les variables associées à ces observations
+summary(X[subgroup, ])
+```
+
+Remarque : T'as quand même une grande hétérogénéité au sein de cette sous-catégorie (cf. les résultats de summary(tau.hat.forest.var.imp[subgroup])). Je pense que ça vaudrait le coup d'avoir une analyse en faisceau, i.e. de voir l'effet hétérogène pour un vecteur x donné (ce que nous permet a priori le modèle, nan ?)
+
+
+
+
 
 
 
