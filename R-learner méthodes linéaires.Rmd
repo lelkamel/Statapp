@@ -75,6 +75,7 @@ x_basic <- c( "B_Sgender_index2","B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high"
 
 ```
 
+
 ```{r}
 colSums(is.na(data[ , x_basic]))#nombre de valeurs na dans chaque variable
 na_data <- data[apply(data[ , x_basic], 1, function(row) any(is.na(row))), ]
