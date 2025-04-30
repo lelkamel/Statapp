@@ -259,7 +259,7 @@ pardef = par(mar = c(5, 4, 4, 2) + 0.5, cex.lab=1.5, cex.axis=1.5, cex.main=1.5,
 boxplot(tau.hat.forest.var.imp ~ cut(X$B_fulltime_teacher, breaks=20), xlab = "Sschool_id (découpé en 20)", ylab = "estimated CATE")
 lines(smooth.spline(X$B_fulltime_teacher, tau.hat.forest.var.imp, df = 4), lwd = 2, col = 4)
 
-Comment conclure ?
+#Comment conclure ?
 ```
 
 ## Exploration + fine de l'hétérogénéité
@@ -275,6 +275,36 @@ summary(X[subgroup, ])
 
 Remarque : T'as quand même une grande hétérogénéité au sein de cette sous-catégorie (cf. les résultats de summary(tau.hat.forest.var.imp[subgroup])). Je pense que ça vaudrait le coup d'avoir une analyse en faisceau, i.e. de voir l'effet hétérogène pour un vecteur x donné (ce que nous permet a priori le modèle, nan ?)
 
+Petite digression clustering (mais l'idéal serait de pouvoir retrouver les coupes des arbres de décisions et de créer ainsi des profils d'hétérogénéié)
+
+```{r}
+X_clean <- na.omit(X)#Traitement des valeurs manquantes
+```
+
+
+```{r}
+# Traitement des valeurs manquantes dans X
+# Imputation des valeurs manquantes par la moyenne de chaque colonne
+X_reduced <- prcomp(scale(X_clean), rank. = 5)$x  # Utilisation des 5 premières composantes principales
+
+# Combine les CATEs et les variables explicatives ou la PCA réduite de X
+if (length(tau.hat.forest.var.imp) == nrow(X_reduced)) {
+  # Combine les CATEs et les variables explicatives réduites
+  data_cluster <- cbind(tau.hat.forest.var.imp, X_reduced)
+} else {
+  # Si les dimensions ne correspondent pas, il faudra ajuster les données (par exemple, filtrer les observations manquantes dans X)
+  print("Les dimensions ne correspondent pas")
+}
+# Clustering avec k-means (4 clusters)
+clusters <- kmeans(data_cluster, centers = 4)$cluster
+
+# Visualisation des distributions des effets par cluster
+boxplot(tau.hat.forest.var.imp ~ clusters, main = "Effets de traitement par profil-cluster")
+
+# Profil des clusters : Moyennes des variables explicatives par cluster
+aggregate(X, by = list(cluster = clusters), FUN = mean)
+
+```
 
 
 
