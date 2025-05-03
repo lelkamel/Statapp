@@ -130,3 +130,56 @@ summary(model2)
 hist(tau_hat)
 ```
 
+### Lower bound Variance implementation
+
+```{r}
+nb_bins <- 100
+df1$D<-df1$B_treat
+# Étape 1 : séparer les groupes
+y1 <- df1$Y[df1$D == 1]
+y0 <- df1$Y[df1$D == 0]
+
+# Étape 2 : trier les deux vecteurs
+y1_sorted <- sort(y1)
+y0_sorted <- sort(y0)
+
+
+# Étape 3 : diviser les rangs en bins
+# Créer des indices de bin pour chaque observation triée
+bins_y0 <- cut(1:length(y0), breaks = nb_bins, labels = FALSE)
+bins_y1 <- cut(1:length(y1), breaks = nb_bins, labels = FALSE)
+
+# Étape 4 : calculer la moyenne dans chaque bin pour les traités et non-traités
+bin_means_treat <- tapply(y1_sorted, bins_y1, mean)
+bin_means_control <- tapply(y0_sorted, bins_y0, mean)
+
+# Étape 5 : calcul des effets moyens par bin
+diffs <- bin_means_treat - bin_means_control
+
+# Étape 6 : calcul de la borne inférieure de la variance du CATE
+mean_diff <- mean(diffs)
+var_lower_bound <- mean((diffs - mean_diff)^2)
+
+cat("Borne inférieure de la variance du CATE (avec binning):", var_lower_bound, "\n")
+```
+
+
+### représentation de l'effet de traitement estimé par bin
+
+```{r}
+qte_df <- data.frame(
+  Bin = 1:nb_bins,
+  QTE = diffs
+)
+
+# Tracer le QTE par quantile/bin
+ggplot(qte_df, aes(x = Bin, y = QTE)) +
+  geom_line(color = "blue", size = 1.2) +
+  geom_point(color = "blue", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  labs(title = "Effet de traitement estimé par bin",
+       x = "Quantile (Bin)",
+       y = "Effet de traitement moyen") +
+  theme_minimal()
+```
+
