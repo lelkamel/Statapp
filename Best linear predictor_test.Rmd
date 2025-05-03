@@ -1,0 +1,132 @@
+---
+title: "Best linear predictor_test"
+author: "K.S"
+date: "2025-05-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+x_basic <- c("B_Sgender_index2", "B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
+"B_no_female_sib", "B_no_male_sib", "B_Solder_sister",  "B_Sradio_house",          
+
+"B_rural","B_Sdistrict", "B_Scaste",
+  
+"B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
+
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part" , "Sschool_id"
+)
+```
+
+```{r}
+path<- c("C:/Users/steph/Documents/ENSAE/Projet statapp/code perso/essai R")
+setwd(path)
+df <-read_dta("bt_analysis_final.dta")
+```
+
+```{r}
+library(glmnet)
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+df1 <- df1[complete.cases(df1[, x_basic]), ]
+Y=(df1$E_Sgender_index2)
+X1 = df1[x_basic]
+X=as.matrix(as.data.frame(scale(df1[x_basic])))
+
+X_expand=as.matrix(as.data.frame(expand_features(X,interactions = TRUE,squares=FALSE)))
+D=df1$B_treat
+```
+#####----------méthode 1 : ###---------------------------------------
+```{r}
+#X<-as.matrix(scale(expand_features(X))
+```
+
+
+## définition du nombre de découpes pour faire le cross-fit
+```{r}
+k_folds = 5
+foldid = sample(rep(seq(k_folds), length = length(D)))
+```
+
+## détermination du score de propension : D.hat (regression logistique)
+```{r}
+D.lasso<-cv.glmnet(X_expand,D,family="binomial",foldid = foldid, keep=TRUE,alpha=1)
+theta.hat.lasso<-D.lasso$fit.preval[,!is.na(colSums(D.lasso$fit.preval))][,D.lasso$lambda==D.lasso$lambda.min] #theta c'est X'beta
+D.hat.lasso = 1/(1 + exp(-theta.hat.lasso)) #D.hat c'est P(D=1|X) = F(X'bet) avec F densité d'une logistique
+lasso_accuracy(fit=D.lasso,x=X_expand,y=D)
+```
+## détermination de E(Y|X) : Y.hat
+```{r}
+Y.lasso<-cv.glmnet(X_expand,Y,family="gaussian",foldid = foldid, keep=TRUE,alpha=1)
+Y.hat.lasso<-Y.lasso$fit.preval[,!is.na(colSums(Y.lasso$fit.preval))][,Y.lasso$lambda==Y.lasso$lambda.min]
+lasso_accuracy(fit=Y.lasso,x=X_expand,y=Y)
+```
+
+## fit le R-learner
+```{r}
+Y_tilde = Y - Y.hat.lasso
+X_tilde = cbind(as.numeric(D - D.hat.lasso)* cbind(X_expand)) #Pour le R-S learner, on rajoute encore X dans X_tilde
+tau_fit <- cv.glmnet(X_tilde,Y_tilde,family="gaussian",foldid = foldid,alpha=1)
+tau_beta = as.vector(t(coef(tau_fit, s = "lambda.min")[-1]))
+
+tau_hat = cbind(X_expand) %*% tau_beta
+tau_beta
+```
+
+```{r}
+coeffs1 <- coef(tau_fit, s= "lambda.min")
+cbind(row.names(coeffs1)[order(abs(coeffs1), decreasing = TRUE)], coeffs1[order(abs(coeffs1), decreasing = TRUE)])
+```
+
+
+```{r}
+mean(tau_hat[which(df1$B_Sgirl==1)])
+mean(tau_hat[which(df1$B_Sgirl==0)])
+```
+
+## Best linear Predictor (methode Athey et Wager)
+
+```{r}
+library(fixest)
+df1$tau_hat<-tau_hat
+tau_hat_mean<-mean(tau_hat)
+df1$Y_moins_y_hat <- Y - Y.hat.lasso
+df1$c1 <- tau_hat_mean*(D - D.hat.lasso)
+df1$c2 <- (tau_hat - tau_hat_mean)*(D - D.hat.lasso)
+model <- feols(Y_moins_y_hat ~ c1 + c2, data = df1, cluster = ~Sschool_id)
+summary(model)
+```
+
+## Approche plus générale (chernozukov)
+
+```{r}
+##On recherche un proxy de B(Z) = E(Y(0)|Z)
+df1$Y <- df1$E_Sgender_index2
+formula_str <- paste("Y ~", paste(x_basic, collapse = " + "))
+formula_obj <- as.formula(formula_str)
+
+# Ajuster le modèle sur les non-traités
+model_control <- feols(formula_obj, data = subset(df1, B_treat == 0))
+
+# Prédire E[Y(0) | Z] pour tous les individus
+E_Y0_hat <- predict(model_control, newdata = df1)
+
+# Ajouter la prédiction à la base de données
+df1$E_Y0_hat<-E_Y0_hat
+
+df1$x1<- D - D.hat.lasso
+df1$x2<- (tau_hat - tau_hat_mean)*(D - D.hat.lasso)
+
+#regression
+model2 <- feols(Y ~ E_Y0_hat+ tau_hat + x1 + x2, data = df1, cluster = ~Sschool_id)
+summary(model2)
+
+```
+
+```{r}
+hist(tau_hat)
+```
+
