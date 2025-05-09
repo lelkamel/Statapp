@@ -1,0 +1,808 @@
+---
+title: "Final Statapp"
+author: "K.S"
+date: "2025-05-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# --########################### Important Functions ############################
+
+```{r}
+evaluate_model_grf <- function(model, Y_true, threshold = 0.5) {
+  # Vérifie le type de modèle
+  model_class <- class(model)[1]
+  
+  
+  
+  if (model_class == "regression_forest") {
+    # Régression continue
+    # Prédictions
+    Y_pred <- predict(model)$predictions
+    mse <- mean((Y_true - Y_pred)^2)
+    mae <- mean(abs(Y_true - Y_pred))
+    r2 <- 1 - sum((Y_true - Y_pred)^2) / sum((Y_true - mean(Y_true))^2)
+    
+    return(list(
+      type = "regression",
+      MSE = mse,
+      MAE = mae,
+      R2 = r2
+    ))
+    
+  } else if (model_class == "probability_forest") {
+    # Probabilités (binaire)
+    # Y_pred are probabilities
+    # Prédictions
+    Y_pred <- predict(model)$predictions[,"1"]
+    log_loss <- -mean(Y_true * log(Y_pred + 1e-15) + (1 - Y_true) * log(1 - Y_pred + 1e-15))
+    Y_class <- ifelse(Y_pred >= threshold, 1, 0)
+    accuracy <- mean(Y_class == Y_true)
+    
+    # AUC avec pROC
+    if (requireNamespace("pROC", quietly = TRUE)) {
+      auc <- pROC::roc(Y_true, Y_pred)$auc
+    } else {
+      auc <- NA
+      warning("Le package 'pROC' est requis pour calculer l'AUC. Installe-le avec install.packages('pROC').")
+    }
+    
+    return(list(
+      type = "binary (probability)",
+      LogLoss = log_loss,
+      Accuracy = accuracy,
+      AUC = auc
+    ))
+    
+  } else if (model_class == "classification_forest") {
+    # Classification directe (0/1)
+    accuracy <- mean(Y_pred == Y_true)
+    
+    return(list(
+      type = "binary (classification)",
+      Accuracy = accuracy
+    ))
+    
+  } else {
+    stop("Type de modèle non reconnu.")
+  }
+}
+
+```
+
+```{r}
+lasso_accuracy <- function(fit, x, y, s = "lambda.min") {
+  # Détecter la famille
+  family <- fit$glmnet.fit$call$family
+  if (is.null(family)) family <- "gaussian"  # par défaut
+
+  # Prédictions
+  if (family == "binomial") {
+    probs <- predict(fit, newx = x, s = s, type = "response")
+    pred_class <- as.numeric(probs > 0.5)
+    
+    # Métriques pour classification
+    acc <- mean(pred_class == y)
+    log_loss <- -mean(y * log(probs) + (1 - y) * log(1 - probs))
+
+    if (requireNamespace("pROC", quietly = TRUE)) {
+      auc <- pROC::auc(pROC::roc(y, probs))
+    } else {
+      auc <- NA
+      warning("Pour calculer l'AUC, installez le package `pROC`")
+    }
+
+    return(list(
+      type = "classification",
+      accuracy = acc,
+      log_loss = log_loss,
+      auc = auc
+    ))
+
+  } else {
+    y_hat <- predict(fit, newx = x, s = s)
+
+    # Métriques pour régression
+    rmse <- sqrt(mean((y - y_hat)^2))
+    mae <- mean(abs(y - y_hat))
+    r2 <- 1 - sum((y - y_hat)^2) / sum((y - mean(y))^2)
+
+    return(list(
+      type = "regression",
+      rmse = rmse,
+      mae = mae,
+      r2 = r2
+    ))
+  }
+}
+```
+
+
+```{r}
+expand_features <- function(X, interactions = TRUE, squares = TRUE) {
+  X <- as.data.frame(X)
+  var_names <- colnames(X)
+
+  new_features <- list()
+
+  # Variables originales
+  new_features[["linear"]] <- X
+
+  # Carrés des variables
+  if (squares) {
+    squares_df <- X^2
+    colnames(squares_df) <- paste0(var_names, "_sq")
+    new_features[["squares"]] <- squares_df
+  }
+
+  # Interactions croisées
+  if (interactions) {
+    inter_mat <- list()
+    p <- ncol(X)
+    for (i in 1:(p - 1)) {
+      for (j in (i + 1):p) {
+        new_col <- X[[i]] * X[[j]]
+        name <- paste0(var_names[i], "_x_", var_names[j])
+        inter_mat[[name]] <- new_col
+      }
+    }
+    new_features[["interactions"]] <- as.data.frame(inter_mat)
+  }
+
+  # Fusionner toutes les features
+  X_expanded <- do.call(cbind, new_features)
+  return(X_expanded)
+}
+```
+
+#- ###################### Libraries ######################################
+```{r}
+library(haven)
+library(glmnet)
+library(grf)
+library(fixest)
+library(dplyr)
+```
+
+
+```{r}
+path<- c("C:/Users/steph/Documents/ENSAE/Projet statapp/code perso/essai R")
+setwd(path)
+df <-read_dta("bt_analysis_final.dta")
+```
+
+```{r}
+x_basic_attitude <- c("B_Sgender_index2", "B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
+"B_no_female_sib", "B_no_male_sib", "B_Solder_sister",  "B_Sradio_house",          
+
+"B_rural","B_Sdistrict", "B_Scaste",
+  
+"B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
+
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part" , "Sschool_id"
+)
+
+x_basic_behavior <- c("B_Sbehavior_index2", "B_Sage_cat", "B_Sgrade6", "B_Sclass_rank_high", "B_Sgirl", "B_Shh_size", 
+"B_no_female_sib", "B_no_male_sib", "B_Solder_sister",  "B_Sradio_house",          
+
+"B_rural","B_Sdistrict", "B_Scaste",
+  
+"B_Sown_house",  "B_q10_guest_teachr", "B_fulltime_teacher", "B_pct_female_teacher",
+  "B_Spart_extracurr", "B_Smonitor_sch", "B_Soften_bunk", "B_coed",
+
+  "Cfem_lit_rate", "Cmale_lit_rate", "Cfem_lab_part" , "Sschool_id"
+)
+```
+
+
+
+#- ############################## PART 1 - CATE Estimation ###############################
+
+## - ### Methode 1 : R-Learner in High Dimension -- variable Gender attitudes ########
+
+
+```{r}
+df1 <- df[-which(is.na(df$E_Sgender_index2)),]
+df1 <- df1[complete.cases(df1[, x_basic_attitude]), ]
+Y1=(df1$E_Sgender_index2)
+X1 = df1[x_basic_attitude]
+X1=as.matrix(as.data.frame(scale(df1[x_basic_attitude])))
+X_expand=as.matrix(as.data.frame(expand_features(X1,interactions = TRUE,squares=FALSE))) #interactions
+D1=df1$B_treat
+```
+
+
+## définition du nombre de découpes pour faire le cross-fit
+```{r}
+k_folds = 5
+foldid = sample(rep(seq(k_folds), length = length(D1)))
+```
+
+## détermination du score de propension : D.hat (regression logistique)
+```{r}
+D.lasso<-cv.glmnet(X_expand,D1,family="binomial",foldid = foldid, keep=TRUE,alpha=1)
+theta.hat.lasso<-D.lasso$fit.preval[,!is.na(colSums(D.lasso$fit.preval))][,D.lasso$lambda==D.lasso$lambda.min] #theta c'est X'beta
+D.hat.lasso = 1/(1 + exp(-theta.hat.lasso)) #D.hat c'est P(D=1|X) = F(X'bet) avec F densité d'une logistique
+lasso_accuracy(fit=D.lasso,x=X_expand,y=D1)
+```
+
+## détermination de E(Y|X) : Y.hat
+```{r}
+Y.lasso<-cv.glmnet(X_expand,Y1,family="gaussian",foldid = foldid, keep=TRUE,alpha=1)
+Y.hat.lasso<-Y.lasso$fit.preval[,!is.na(colSums(Y.lasso$fit.preval))][,Y.lasso$lambda==Y.lasso$lambda.min]
+lasso_accuracy(fit=Y.lasso,x=X_expand,y=Y1)
+```
+
+## fit le R-learner et determination du tau.hat
+```{r}
+Y_tilde = Y1 - Y.hat.lasso
+X_tilde = cbind(as.numeric(D1 - D.hat.lasso)* cbind(X_expand)) #Pour le R-S learner, on rajoute encore X dans X_tilde
+tau_fit <- cv.glmnet(X_tilde,Y_tilde,family="gaussian",foldid = foldid,alpha=1)
+tau_beta = as.vector(t(coef(tau_fit, s = "lambda.min")[-1]))
+
+tau.hat.rl.attitude = cbind(X_expand) %*% tau_beta
+tau_beta
+```
+
+```{r}
+coeffs1 <- coef(tau_fit, s= "lambda.min")
+#cbind(row.names(coeffs1)[order(abs(coeffs1), decreasing = TRUE)], coeffs1[order(abs(coeffs1), decreasing = TRUE)])
+```
+
+```{r}
+df1$tau.hat.rl.attitude<-tau.hat.rl.attitude
+```
+
+
+## - ### Methode 2 : Causal Forest -- Variable Behavior  ########
+
+```{r}
+df2 <- df[-which(is.na(df$E_Sbehavior_index2)),]
+df2 <- df2[complete.cases(df2[, x_basic_behavior]), ]
+Y2=as.vector(df2$E_Sbehavior_index2)
+#Z = df2[x_basic]
+X2 = df2[x_basic_behavior]
+D2= as.vector(df2$B_treat)
+Sschool_id = as.numeric(df2$Sschool_id)
+sum(!complete.cases(df2[, x_basic_behavior]))
+```
+
+```{r}
+Y.forest = regression_forest(X2,Y2,clusters=Sschool_id,equalize.cluster.weights = TRUE,seed=0)
+Y.hat.forest = predict(Y.forest)$predictions
+D.forest = probability_forest(X2,as.factor(D2),clusters=Sschool_id,equalize.cluster.weights = TRUE,seed=0)
+D.hat.forest = predict(D.forest)$predictions[,"1"] #on ne garde que les proba d'être 1
+
+#tracer le propensity score en fonction de quelques caractéristiques
+
+cf.raw = causal_forest(X2,Y2,D2, Y.hat = Y.hat.forest, W.hat = D.hat.forest, clusters = Sschool_id, equalize.cluster.weights = TRUE,tune.parameters = "all",seed=0)
+
+cf<-cf.raw
+```
+
+```{r}
+evaluate_model_grf(Y.forest,Y2)
+evaluate_model_grf(D.forest,D2)
+```
+
+```{r}
+tau.hat.cf.behavior = predict(cf)$predictions
+```
+
+```{r}
+df2$tau.hat.cf.behavior<-tau.hat.cf.behavior
+```
+
+
+#- ############################## PART 2 - Detecting Heterogeneity ###############################
+
+## - ### Test 1 : R-Learner in High Dimension -- variable Gender attitudes ########
+
+## Approche 1 - plus générale (chernozukov)
+
+```{r}
+##On recherche un proxy de B(Z) = E(Y(0)|Z)
+df1$Y1 <- df1$E_Sgender_index2
+formula_str <- paste("Y1 ~", paste(x_basic_attitude, collapse = " + "))
+formula_obj <- as.formula(formula_str)
+
+# Ajuster le modèle sur les non-traités
+model_control <- feols(formula_obj, data = subset(df1, B_treat == 0))
+
+# Prédire E[Y(0) | Z] pour tous les individus
+E_Y0_hat <- predict(model_control, newdata = df1)
+
+# Ajouter la prédiction à la base de données
+df1$E_Y0_hat<-E_Y0_hat
+
+df1$x1<- D1 - D.hat.lasso
+df1$x2<- (tau.hat.rl.attitude  - mean(tau.hat.rl.attitude))*(D1 - D.hat.lasso)
+
+#regression
+model <- feols(Y1 ~ E_Y0_hat+ tau.hat.rl.attitude + x1 + x2, data = df1, cluster = ~Sschool_id)
+summary(model)
+
+```
+
+## - Approche 2 (inspirée des causal forests-- Athey & Wager)
+
+```{r}
+tau.hat.rl.attitude.mean<-mean(tau.hat.rl.attitude)
+df1$Y_moins_y_hat <- Y1 - Y.hat.lasso
+df1$c1 <- tau.hat.rl.attitude.mean*(D1 - D.hat.lasso)
+df1$c2 <- (tau.hat.rl.attitude - tau.hat.rl.attitude.mean)*(D1 - D.hat.lasso)
+model <- feols(Y_moins_y_hat ~ c1 + c2, data = df1, cluster = ~Sschool_id)
+summary(model)
+```
+
+
+## - ### Test 1 : Causal Forest -- variable Behaviour  ########
+
+```{r}
+test_calibration(cf) 
+#Significativité du coefficient differential...--> hétérogénéité détectée.
+```
+
+
+#- ############################## PART 3 - Assessing Heterogeneity ###############################
+
+## - ### Methode 1 : R-Learner in High Dimension -- variable Gender attitudes ########
+
+
+```{r}
+hist(tau.hat.rl.attitude,main="Histogram of estimate CATE")
+```
+
+
+```{r}
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_Sgirl, data = df1,
+        main = "Distribution de CATE estimé par Genre",
+        xlab = "Girl",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_Sgirl), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+```
+
+```{r}
+subset.girl = df1$B_Sgirl == 1
+t.test(tau.hat.rl.attitude[subset.girl],tau.hat.rl.attitude[!subset.girl])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_Sdistrict, data = df1,
+        main = "Distribution du CATE estimé par District",
+        xlab = "District",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_Sdistrict), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+anova.result.district2 <- aov(tau.hat.rl.attitude ~ B_Sdistrict, data = df1)
+summary(anova.result.district2)
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_coed, data = df1,
+        main = "Distribution du CATE estimé par type d'ecole (B_Coed)",
+        xlab = "Coed",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_coed), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+```{r}
+subset.coed = df1$B_coed == 1
+t.test(tau.hat.rl.attitude[subset.coed],tau.hat.rl.attitude[!subset.coed])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_rural, data = df1,
+        main = "Distribution du CATE estimé par Milieu (B_Rural)",
+        xlab = "Rural",
+        ylab = "Effet de traitement estimé",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_rural), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+subset.rural = df1$B_rural == 1
+t.test(tau.hat.rl.attitude[subset.rural],tau.hat.rl.attitude[!subset.rural])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_Sage_cat, data = df1,
+        main = "Distribution du CATE estimé par categorie d'age",
+        xlab = "Categorie d'age",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_Sage_cat), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+anova.result.age2 <- aov(tau.hat.rl.attitude ~ B_Sage_cat, data = df1)
+summary(anova.result.age2)
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.rl.attitude ~ B_Solder_sister, data = df1,
+        main = "Distribution du CATE estimé par categorie de B_older_sister",
+        xlab = "Avoir une grande soeur",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df1$tau.hat.rl.attitude, as.factor(df1$B_Solder_sister), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df1$tau.hat.rl.attitude)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+subset.oldsis = df1$B_Solder_sister == 1
+t.test(tau.hat.rl.attitude[subset.oldsis],tau.hat.rl.attitude[!subset.oldsis])
+```
+
+
+## Tentative de profilage des individus ayant le plus bénéficié ou le moins bénéficier du traitement || variable Gender attitudes
+```{r}
+quantile_10 <- quantile(df1$tau.hat.rl.attitude, 0.10)
+quantile_90 <- quantile(df1$tau.hat.rl.attitude, 0.90)
+df1$low_responder <- df1$tau.hat.rl.attitude <= quantile_10
+df1$high_responder <- df1$tau.hat.rl.attitude >= quantile_90
+```
+
+### Summary lower responder
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+df1_low <- df1 %>%
+  filter(low_responder)
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df1_low[[var]])) * 100, 1))
+}
+```
+
+### Summary higher responder
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+df1_high <- df1 %>%
+  filter(high_responder)
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df1_high[[var]])) * 100, 1))
+}
+```
+
+### summary population globale
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df1[[var]])) * 100, 1))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+## - ### Methode 2 : Causal Forest -- Variable Behavior  ########
+
+
+```{r}
+hist(tau.hat.cf.behavior,main="Histogram of estimate CATE")
+```
+
+```{r}
+## confident interval for ATE
+ATE = average_treatment_effect(cf)
+paste("95% CI for the ATE:", round(ATE[1], 3),
+      "+/-", round(qnorm(0.975) * ATE[2], 3)) #effet de traitement positif
+```
+
+```{r}
+## confident interval for the difference of ATE between low and high CATE groups
+high_effect = tau.hat.cf.behavior > median(tau.hat.cf.behavior)
+ate.high =  average_treatment_effect(cf,subset = high_effect)
+ate.low = average_treatment_effect(cf,subset = !high_effect)
+paste("95% CI for difference in ATE:",
+      round(ate.high[1] - ate.low[1], 3), "+/-",
+      round(qnorm(0.975) * sqrt(ate.high[2]^2 + ate.low[2]^2), 3))
+```
+
+```{r}
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_Sgirl, data = df2,
+        main = "Distribution de CATE estimé par Genre",
+        xlab = "Girl",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_Sgirl), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+```
+
+```{r}
+subset.girl = df2$B_Sgirl == 1
+t.test(tau.hat.cf.behavior[subset.girl],tau.hat.cf.behavior[!subset.girl])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_Sdistrict, data = df2,
+        main = "Distribution du CATE estimé par District",
+        xlab = "District",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_Sdistrict), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+anova.result.district2 <- aov(tau.hat.cf.behavior ~ B_Sdistrict, data = df2)
+summary(anova.result.district2)
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_coed, data = df2,
+        main = "Distribution du CATE estimé par type d'ecole (B_Coed)",
+        xlab = "Coed",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_coed), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+```{r}
+subset.coed = df2$B_coed == 1
+t.test(tau.hat.cf.behavior[subset.coed],tau.hat.cf.behavior[!subset.coed])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_rural, data = df2,
+        main = "Distribution du CATE estimé par Milieu (B_Rural)",
+        xlab = "Rural",
+        ylab = "Effet de traitement estimé",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_rural), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+subset.rural = df2$B_rural == 1
+t.test(tau.hat.cf.behavior[subset.rural],tau.hat.cf.behavior[!subset.rural])
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_Sage_cat, data = df2,
+        main = "Distribution du CATE estimé par categorie d'age",
+        xlab = "Categorie d'age",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_Sage_cat), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+anova.result.age2 <- aov(tau.hat.cf.behavior ~ B_Sage_cat, data = df2)
+summary(anova.result.age2)
+```
+
+```{r}
+
+# Créer un boxplot de la distribution de tau_hat par niveau de la variable catégorielle
+boxplot(tau.hat.cf.behavior ~ B_Solder_sister, data = df2,
+        main = "Distribution du CATE estimé par categorie de B_older_sister",
+        xlab = "Avoir une grande soeur",
+        ylab = "Effet de traitement estimé ",
+        col = "lightblue",
+        border = "darkblue")
+
+means <- tapply(df2$tau.hat.cf.behavior, as.factor(df2$B_Solder_sister), mean)
+
+# Ajouter les moyennes sur le graphique
+# Positionner les textes au-dessus des boxplots
+text(x = 1:length(means),
+     y = means + 0.02 * diff(range(df2$tau.hat.cf.behavior)),  # léger décalage au-dessus de la moyenne
+     labels = round(means, 3),
+     col = "red",
+     cex = 0.8)
+
+```
+
+```{r}
+subset.oldsis = df2$B_Solder_sister == 1
+t.test(tau.hat.cf.behavior[subset.oldsis],tau.hat.cf.behavior[!subset.oldsis])
+```
+
+
+## Tentative de profilage des individus ayant le plus bénéficié ou le moins bénéficier du traitement || variable behaviour
+```{r}
+quantile_10 <- quantile(df2$tau.hat.cf.behavior, 0.10)
+quantile_90 <- quantile(df2$tau.hat.cf.behavior, 0.90)
+df2$low_responder <- df2$tau.hat.cf.behavior <= quantile_10
+df2$high_responder <- df2$tau.hat.cf.behavior >= quantile_90
+```
+
+### Summary lower responder
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+df2_low <- df2 %>%
+  filter(low_responder)
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df2_low[[var]])) * 100, 1))
+}
+```
+
+### Summary higher responder
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+df2_high <- df2 %>%
+  filter(high_responder)
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df2_high[[var]])) * 100, 1))
+}
+```
+
+### summary population globale
+
+```{r}
+vars <- c("B_Sgirl", "B_coed", "B_rural", "B_Sdistrict", "B_Sage_cat","B_Scaste")
+
+for (var in vars) {
+  cat("\n", var, ":\n")
+  print(round(prop.table(table(df2[[var]])) * 100, 1))
+}
+```
